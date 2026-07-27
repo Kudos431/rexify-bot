@@ -2,7 +2,7 @@ services:
   - type: web
     name: rexify-bot
     env: node
-    plan: standard
+    plan: free
     buildCommand: npm install && npx puppeteer install
     startCommand: node server.js
     envVars:
