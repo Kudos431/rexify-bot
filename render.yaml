@@ -3,10 +3,13 @@ services:
     name: rexify-bot
     env: node
     plan: free
-    buildCommand: npm install && npx puppeteer install
-    startCommand: node server.js
+
+    buildCommand: npm install
+    startCommand: npm start
+
     envVars:
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/src/.cache
       - key: NODE_ENV
         value: production
+
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "false"
