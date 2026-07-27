@@ -1,8 +1,17 @@
-// 1. Safe dotenv initialization
+// 1. Crash Guards (Prevents background errors from killing Express on Render)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRASH GUARD] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH GUARD] Uncaught Exception thrown:', err);
+});
+
+// 2. Safe dotenv initialization
 try {
   require('dotenv').config();
 } catch (e) {
-  // Gracefully ignored when environment variables are injected directly
+  // Gracefully ignored when environment variables are injected directly in production
 }
 
 const express = require('express');
@@ -14,9 +23,20 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
-const TARGET_URL = process.env.TARGET_URL || 'https://rexify.com.ng?reference=bkolawole56';
+const TARGET_URL = process.env.TARGET_URL || 'https://rexify.com.ng?reference=sholaupdates';
 
 const mobileDevice = KnownDevices['iPhone 13 Pro'];
+
+// 3. Global CORS Middleware
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.use(express.static('public'));
 
@@ -36,7 +56,10 @@ function sendLog(message, type = 'normal', done = false) {
   });
 }
 
+// Dynamic delay helpers
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const randomDelay = (min = 1000, max = 3000) => 
+  delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
 function generateRandomEmail() {
   const randStr = Math.random().toString(36).substring(2, 8);
@@ -47,11 +70,15 @@ function generateRandomPassword() {
   return `Pass!${Math.random().toString(36).slice(-8)}`;
 }
 
+// 4. Server-Sent Events (SSE) Endpoint with Heartbeat Ping
 app.get('/api/logs', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
+
+  res.write(': keep-alive\n\n');
 
   const clientId = Date.now();
   sseClients.push({ id: clientId, res });
@@ -60,6 +87,16 @@ app.get('/api/logs', (req, res) => {
     sseClients = sseClients.filter((client) => client.id !== clientId);
   });
 });
+
+setInterval(() => {
+  sseClients.forEach((client) => {
+    try {
+      client.res.write(': keep-alive\n\n');
+    } catch (err) {
+      // Cleaned up on disconnect
+    }
+  });
+}, 10000);
 
 function parseCSVBuffer(buffer) {
   const content = buffer.toString('utf-8');
@@ -77,6 +114,7 @@ function parseCSVBuffer(buffer) {
   });
 }
 
+// 5. Browser Instance Manager
 let browserInstance = null;
 
 async function getBrowser() {
@@ -90,95 +128,90 @@ async function getBrowser() {
   });
 
   browserInstance.on('disconnected', () => {
-    sendLog('Browserless connection dropped. Reconnect queued for next task.', 'error');
+    sendLog('Browserless connection dropped. Reconnect queued...', 'error');
     browserInstance = null;
   });
 
   return browserInstance;
 }
 
-app.post('/api/start', upload.single('csvFile'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: 'No CSV file uploaded' });
-  }
+// Single Account Creation Handler
+async function processAccount(row, rowIndex, workerId) {
+  const bankName = row.bankName || 'OPay';
+  const accountNumber = row.accountNumber || row.account || Object.values(row)[0];
 
-  const accountRows = parseCSVBuffer(req.file.buffer);
-  if (accountRows.length === 0) {
-    return res.status(400).json({ success: false, error: 'CSV file is empty' });
-  }
+  const randomEmail = generateRandomEmail();
+  const randomPassword = generateRandomPassword();
+  sendLog(`[Worker ${workerId}] [Row ${rowIndex + 1}] Processing ${accountNumber} (${randomEmail})`, 'info');
 
-  res.json({ success: true, count: accountRows.length });
+  let context = null;
+  try {
+    const browser = await getBrowser();
+    context = await browser.createBrowserContext();
+    let page = await context.newPage();
 
-  sendLog(`Loaded ${accountRows.length} account row(s) from CSV. Target: ${TARGET_URL}`, 'info');
-  
-  if (!process.env.BROWSERLESS_WS) {
-    sendLog('ERROR: BROWSERLESS_WS environment variable is missing!', 'error', true);
-    return;
-  }
+    await page.emulate(mobileDevice);
+    page.setDefaultTimeout(25000);
 
-  for (let i = 0; i < accountRows.length; i++) {
-    const row = accountRows[i];
-    const randomEmail = generateRandomEmail();
-    const randomPassword = generateRandomPassword();
-    const bankName = row.bankName || 'OPay';
-    const accountNumber = row.accountNumber || row.account || Object.values(row)[0];
+    // STEP 1: Landing Page
+    await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 35000 });
+    await randomDelay(1000, 2000);
 
-    sendLog(`--- Processing ${i + 1}/${accountRows.length} ---`, 'info');
-    sendLog(`Generated Identity: ${randomEmail}`);
+    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+    await randomDelay(500, 1000);
+    await Promise.all([
+      getStartedBtn.click(),
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+    ]);
 
-    let context = null;
-    try {
-      const browser = await getBrowser();
-      context = await browser.createBrowserContext();
-      let page = await context.newPage();
-
+    const pages = await context.pages();
+    if (pages.length > 1) {
+      page = pages[pages.length - 1];
       await page.emulate(mobileDevice);
+      page.setDefaultTimeout(25000);
+    }
 
-      // STEP 1: Landing Page
-      sendLog(`Navigating to target URL in mobile view...`);
-      await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+    await randomDelay(1500, 3000);
 
-      const getStartedBtn = await page.waitForSelector('text/Get started', { timeout: 15000 });
-      await Promise.all([
-        getStartedBtn.click(),
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
-      ]);
+    // STEP 2: Registration
+    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+    await emailSelector.type(randomEmail, { delay: 50 });
 
-      const pages = await context.pages();
-      if (pages.length > 1) {
-        page = pages[pages.length - 1];
-        await page.emulate(mobileDevice);
-      }
+    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+    await passSelector.type(randomPassword, { delay: 50 });
 
-      sendLog(`Clicked 'Get started'. Current URL: ${page.url()}`);
-      await delay(2000);
+    const checkbox = await page.$('input[type="checkbox"]');
+    if (checkbox) {
+      await checkbox.click();
+    }
 
-      // STEP 2: Registration
-      sendLog(`Filling signup form with generated credentials...`);
+    const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+    await randomDelay(600, 1200);
+    await Promise.all([
+      continueBtn.click(),
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+    ]);
+
+    await randomDelay(3000, 5000);
+
+    // STEP 3: Withdrawal Setup & 7x Retry Verification Loop
+    let isVerified = false;
+    let verifyAttempt = 0;
+    const MAX_VERIFY_ATTEMPTS = 7;
+
+    while (!isVerified && verifyAttempt < MAX_VERIFY_ATTEMPTS) {
+      verifyAttempt++;
+      sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt}/${MAX_VERIFY_ATTEMPTS} for ${accountNumber}...`);
+
+      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
       
-      const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { timeout: 15000 });
-      await emailSelector.type(randomEmail, { delay: 40 });
+      // Clear input field cleanly
+      await accountInput.click({ clickCount: 3 });
+      await accountInput.press('Backspace');
+      await randomDelay(300, 600);
+      await accountInput.type(accountNumber, { delay: 50 });
 
-      const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 10000 });
-      await passSelector.type(randomPassword, { delay: 40 });
-
-      const checkbox = await page.$('input[type="checkbox"]');
-      if (checkbox) await checkbox.click();
-
-      const continueBtn = await page.waitForSelector('text/Continue', { timeout: 15000 });
-      await Promise.all([
-        continueBtn.click(),
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
-      ]);
-
-      sendLog(`Clicked 'Continue'. Pausing 5s...`);
-      await delay(5000);
-
-      // STEP 3: Setup Withdrawals
-      sendLog(`Applying mapped Bank (${bankName}) & Account Number (${accountNumber})...`);
-      
-      await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { timeout: 15000 });
-
+      // Select Bank
       try {
         await page.select('select', bankName);
       } catch (e) {
@@ -198,35 +231,135 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
         }, bankName);
       }
 
-      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { timeout: 5000 });
-      await accountInput.type(accountNumber, { delay: 40 });
-
-      const verifyBtn = await page.waitForSelector('text/Verify account', { timeout: 15000 });
+      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 15000 });
+      await randomDelay(500, 1000);
       await verifyBtn.click();
-      sendLog(`Clicked 'Verify account'. Pausing 8s for API verification...`);
-      await delay(8000);
 
-      const finishBtn = await page.waitForSelector('text/Finish & continue', { timeout: 15000 });
-      await finishBtn.click();
-      sendLog(`Clicked 'Finish & continue'. Pausing 5s...`);
-      await delay(5000);
+      // Poll DOM state for up to 12 seconds
+      const startTime = Date.now();
+      let status = 'pending';
 
-      sendLog(`Successfully finished account setup for: ${accountNumber}`, 'info');
+      while (Date.now() - startTime < 12000) {
+        const result = await page.evaluate(() => {
+          const bodyText = document.body.innerText || '';
+          if (bodyText.includes('Account name') || bodyText.includes('Verified')) {
+            return 'success';
+          }
+          if (bodyText.includes('Not verified') || bodyText.includes('Could not verify')) {
+            return 'failed';
+          }
+          return 'pending';
+        });
 
-    } catch (err) {
-      sendLog(`Error processing row ${i + 1} (${accountNumber}): ${err.message}`, 'error');
-    } finally {
-      if (context) {
-        await context.close().catch(() => {});
+        if (result !== 'pending') {
+          status = result;
+          break;
+        }
+        await delay(1000);
+      }
+
+      if (status === 'success') {
+        isVerified = true;
+        sendLog(`[Worker ${workerId}] Account verified successfully for ${accountNumber}!`, 'info');
+      } else {
+        sendLog(`[Worker ${workerId}] Verification returned '${status}' on attempt ${verifyAttempt}. Re-inputting...`, 'warn');
+        await randomDelay(1500, 3000);
       }
     }
+
+    if (!isVerified) {
+      throw new Error(`Failed account verification after ${MAX_VERIFY_ATTEMPTS} attempts.`);
+    }
+
+    // Finish & Continue
+    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
+    await randomDelay(800, 1500);
+    await finishBtn.click();
+
+    sendLog(`[Worker ${workerId}] Clicked 'Finish & continue'. Stabilizing account (15s)...`);
+    await delay(15000);
+
+    return true;
+
+  } catch (err) {
+    sendLog(`[Worker ${workerId}] Error on account ${accountNumber}: ${err.message}`, 'error');
+    return false;
+  } finally {
+    if (context) {
+      await context.close().catch(() => {});
+    }
   }
+}
 
-  sendLog(`All ${accountRows.length} account tasks executed completely!`, 'info', true);
+// 6. Main Runner with Concurrency = 5 and Auto-Stop at 20 Successes
+app.post('/api/start', upload.single('csvFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No CSV file uploaded' });
+    }
 
-  if (browserInstance) {
-    await browserInstance.disconnect().catch(() => {});
-    browserInstance = null;
+    const accountRows = parseCSVBuffer(req.file.buffer);
+    if (accountRows.length === 0) {
+      return res.status(400).json({ success: false, error: 'CSV file is empty' });
+    }
+
+    res.json({ success: true, count: accountRows.length });
+
+    sendLog(`Loaded ${accountRows.length} account row(s). Starting execution pool...`, 'info');
+
+    if (!process.env.BROWSERLESS_WS) {
+      sendLog('ERROR: BROWSERLESS_WS environment variable is missing!', 'error', true);
+      return;
+    }
+
+    // Concurrent Work Queue Engine
+    (async () => {
+      let globalSuccesses = 0;
+      const TARGET_SUCCESSES = 20;
+      const CONCURRENCY = 5;
+
+      const queue = accountRows.map((row, index) => ({ row, index }));
+
+      const worker = async (workerId) => {
+        while (queue.length > 0 && globalSuccesses < TARGET_SUCCESSES) {
+          const item = queue.shift();
+          if (!item) break;
+
+          const success = await processAccount(item.row, item.index, workerId);
+
+          if (success) {
+            globalSuccesses++;
+            sendLog(`SUCCESS (${globalSuccesses}/${TARGET_SUCCESSES}): Account row ${item.index + 1} completed!`, 'info');
+
+            if (globalSuccesses >= TARGET_SUCCESSES) {
+              sendLog(`🎉 TARGET REACHED: Successfully created ${TARGET_SUCCESSES} accounts! Stopping execution pool.`, 'info', true);
+              break;
+            }
+          } else {
+            sendLog(`Failed row ${item.index + 1}. Worker ${workerId} moving to next in queue...`, 'warn');
+          }
+
+          await randomDelay(1000, 2500);
+        }
+      };
+
+      // Launch 5 instances in parallel
+      const workers = Array.from({ length: CONCURRENCY }, (_, i) => worker(i + 1));
+      await Promise.all(workers);
+
+      sendLog(`Execution batch completed. Total successes: ${globalSuccesses}/${TARGET_SUCCESSES}`, 'info', true);
+
+      if (browserInstance) {
+        await browserInstance.disconnect().catch(() => {});
+        browserInstance = null;
+      }
+    })();
+
+  } catch (err) {
+    console.error('Fatal API Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   }
 });
 
