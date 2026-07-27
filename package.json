@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "postinstall": "rm -rf /opt/render/project/src/.cache && npx puppeteer browsers install chrome"
+    "postinstall": "npx puppeteer --version && npm ls puppeteer @puppeteer/browsers && npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "axios": "^1.7.7",
