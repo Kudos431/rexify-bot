@@ -2,13 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const puppeteer = require('puppeteer');
-const path = require('path');
+const { KnownDevices } = require('puppeteer');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const TARGET_URL = process.env.TARGET_URL || 'https://rexify.com.ng?reference=sholaupdates';
+
+// Mobile device profile for forcing smartphone layout/User-Agent
+const mobileDevice = KnownDevices['iPhone 13 Pro'];
 
 // Serve static frontend UI
 app.use(express.static('public'));
@@ -22,7 +25,7 @@ function sendLog(message, type = 'normal', done = false) {
   sseClients.forEach((client) => client.res.write(`data: ${payload}\n\n`));
 }
 
-// 10-second delay helper
+// Delay helper
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Identity Generators
@@ -81,7 +84,7 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
   res.json({ success: true, count: accountRows.length });
 
   sendLog(`Loaded ${accountRows.length} account row(s) from CSV. Target: ${TARGET_URL}`, 'info');
-  sendLog('Launching Chromium engine...', 'info');
+  sendLog('Launching Chromium engine in Mobile View Mode (iPhone 13 Pro)...', 'info');
 
   let browser;
   try {
@@ -115,13 +118,16 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
       const page = await context.newPage();
 
       try {
+        // 📱 FORCE MOBILE EMULATION (Screen size, touch events, iOS User-Agent)
+        await page.emulate(mobileDevice);
+
         // ==========================================
         // STEP 1: Landing Page
         // ==========================================
-        sendLog(`Navigating to target URL...`);
-        await page.goto(TARGET_URL, { waitUntil: 'networkidle2' });
+        sendLog(`Navigating to target URL in mobile view...`);
+        await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Modern Puppeteer v22+ text selector syntax
+        // Wait & click 'Get started' using Puppeteer v22+ text selector
         const getStartedBtn = await page.waitForSelector('text/Get started', { timeout: 15000 });
         await getStartedBtn.click();
         sendLog(`Clicked 'Get started'. Pausing 10s...`);
@@ -138,7 +144,7 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
         const checkbox = await page.$('input[type="checkbox"]');
         if (checkbox) await checkbox.click();
 
-        const continueBtn = await page.waitForSelector('text/Continue');
+        const continueBtn = await page.waitForSelector('text/Continue', { timeout: 15000 });
         await continueBtn.click();
         sendLog(`Clicked 'Continue'. Pausing 10s...`);
         await delay(10000);
@@ -171,12 +177,12 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
 
         await page.type('input[placeholder*="account number"]', accountNumber, { delay: 40 });
 
-        const verifyBtn = await page.waitForSelector('text/Verify account');
+        const verifyBtn = await page.waitForSelector('text/Verify account', { timeout: 15000 });
         await verifyBtn.click();
         sendLog(`Clicked 'Verify account'. Pausing 10s for API verification...`);
         await delay(10000);
 
-        const finishBtn = await page.waitForSelector('text/Finish & continue');
+        const finishBtn = await page.waitForSelector('text/Finish & continue', { timeout: 15000 });
         await finishBtn.click();
         sendLog(`Clicked 'Finish & continue'. Pausing 10s...`);
         await delay(10000);
@@ -186,7 +192,7 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
       } catch (err) {
         sendLog(`Error processing row ${i + 1} (${accountNumber}): ${err.message}`, 'error');
       } finally {
-        // Destroy the incognito tab to immediately release RAM back to Render
+        // Destroy the incognito context immediately to free RAM back to Render
         await context.close();
       }
     }
