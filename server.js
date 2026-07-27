@@ -126,8 +126,8 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
 
       let context;
       try {
-        // Open 1 isolated incognito context for this specific account
-        context = await browser.createIncognitoBrowserContext();
+        // Updated: createBrowserContext() for isolated contexts in modern Puppeteer
+        context = await browser.createBrowserContext();
         const page = await context.newPage();
 
         // 📱 FORCE MOBILE EMULATION (Screen size, touch events, iOS User-Agent)
@@ -139,7 +139,7 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
         sendLog(`Navigating to target URL in mobile view...`);
         await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Wait & click 'Get started' using Puppeteer v22+ text selector
+        // Wait & click 'Get started' using Puppeteer text selector
         const getStartedBtn = await page.waitForSelector('text/Get started', { timeout: 15000 });
         await getStartedBtn.click();
         sendLog(`Clicked 'Get started'. Pausing 10s...`);
@@ -217,7 +217,6 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
     sendLog(`Fatal Automation Engine Error: ${fatalError.message}`, 'error', true);
   } finally {
     if (browser) {
-      // Disconnect clean up without killing remote instance connection
       await browser.disconnect().catch(() => {});
     }
   }
