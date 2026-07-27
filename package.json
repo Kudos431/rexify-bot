@@ -1,0 +1,14 @@
+{
+  "name": "rexify-automation-ui",
+  "version": "1.0.0",
+  "description": "Rexify automation dashboard with Puppeteer for Render",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "puppeteer": "^22.6.0"
+  }
+}
