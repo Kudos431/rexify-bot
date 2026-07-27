@@ -99,28 +99,19 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
   res.json({ success: true, count: accountRows.length });
 
   sendLog(`Loaded ${accountRows.length} account row(s) from CSV. Target: ${TARGET_URL}`, 'info');
-  sendLog('Launching Chromium engine in Mobile View Mode (iPhone 13 Pro)...', 'info');
+  
+  if (!process.env.BROWSERLESS_WS) {
+    sendLog('ERROR: BROWSERLESS_WS environment variable is missing!', 'error', true);
+    return;
+  }
+
+  sendLog('Connecting to remote Browserless instance via WebSocket...', 'info');
 
   let browser;
   try {
-    // Log binary detection details to console
-    console.log("Chrome path:", puppeteer.executablePath());
-    console.log("PUPPETEER_EXECUTABLE_PATH:", process.env.PUPPETEER_EXECUTABLE_PATH);
-
-    // Launch browser optimized for Render's 512MB RAM environment
-    browser = await puppeteer.launch({
-      headless: true,
-      executablePath: puppeteer.executablePath(),
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ]
+    // Connect to Browserless
+    browser = await puppeteer.connect({
+      browserWSEndpoint: process.env.BROWSERLESS_WS,
     });
 
     for (let i = 0; i < accountRows.length; i++) {
@@ -213,7 +204,7 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
       } catch (err) {
         sendLog(`Error processing row ${i + 1} (${accountNumber}): ${err.message}`, 'error');
       } finally {
-        // Safe context destruction to free RAM immediately
+        // Safe context destruction to free remote memory immediately
         if (context) {
           await context.close().catch(() => {});
         }
@@ -226,7 +217,8 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
     sendLog(`Fatal Automation Engine Error: ${fatalError.message}`, 'error', true);
   } finally {
     if (browser) {
-      await browser.close().catch(() => {});
+      // Disconnect clean up without killing remote instance connection
+      await browser.disconnect().catch(() => {});
     }
   }
 });
