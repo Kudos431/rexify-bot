@@ -103,10 +103,14 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
 
   let browser;
   try {
+    // Log binary detection details to console
+    console.log("Chrome path:", puppeteer.executablePath());
+    console.log("PUPPETEER_EXECUTABLE_PATH:", process.env.PUPPETEER_EXECUTABLE_PATH);
+
     // Launch browser optimized for Render's 512MB RAM environment
     browser = await puppeteer.launch({
-      headless: true, // Updated for Puppeteer v22+
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // Dynamic path fallback
+      headless: true,
+      executablePath: puppeteer.executablePath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
