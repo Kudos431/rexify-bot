@@ -1,4 +1,10 @@
-require('dotenv').config();
+// 1. Safe dotenv initialization (won't crash if dotenv isn't installed in production)
+try {
+  require('dotenv').config();
+} catch (e) {
+  // Gracefully ignored when environment variables are injected directly
+}
+
 const express = require('express');
 const multer = require('multer');
 const puppeteer = require('puppeteer');
@@ -22,7 +28,16 @@ let sseClients = [];
 function sendLog(message, type = 'normal', done = false) {
   console.log(`[LOG] ${message}`);
   const payload = JSON.stringify({ message, type, done });
-  sseClients.forEach((client) => client.res.write(`data: ${payload}\n\n`));
+  
+  // Safe SSE broadcast (prevents process crash if client suddenly disconnects)
+  sseClients = sseClients.filter((client) => {
+    try {
+      client.res.write(`data: ${payload}\n\n`);
+      return true;
+    } catch (err) {
+      return false; // Remove dead connection
+    }
+  });
 }
 
 // Delay helper
@@ -53,10 +68,10 @@ app.get('/api/logs', (req, res) => {
   });
 });
 
-// CSV Buffer Parser
+// Robust CSV Buffer Parser (Handles both Windows \r\n and Linux \n line endings)
 function parseCSVBuffer(buffer) {
   const content = buffer.toString('utf-8');
-  const lines = content.trim().split('\n').filter(Boolean);
+  const lines = content.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length === 0) return [];
 
   const headers = lines[0].split(',').map((h) => h.trim());
@@ -90,7 +105,8 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
   try {
     // Launch browser optimized for Render's 512MB RAM environment
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true, // Updated for Puppeteer v22+
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // Dynamic path fallback
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -113,11 +129,12 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
       sendLog(`--- Processing ${i + 1}/${accountRows.length} ---`, 'info');
       sendLog(`Generated Identity: ${randomEmail}`);
 
-      // Open 1 isolated incognito context for this specific account
-      const context = await browser.createIncognitoBrowserContext();
-      const page = await context.newPage();
-
+      let context;
       try {
+        // Open 1 isolated incognito context for this specific account
+        context = await browser.createIncognitoBrowserContext();
+        const page = await context.newPage();
+
         // 📱 FORCE MOBILE EMULATION (Screen size, touch events, iOS User-Agent)
         await page.emulate(mobileDevice);
 
@@ -192,8 +209,10 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
       } catch (err) {
         sendLog(`Error processing row ${i + 1} (${accountNumber}): ${err.message}`, 'error');
       } finally {
-        // Destroy the incognito context immediately to free RAM back to Render
-        await context.close();
+        // Safe context destruction to free RAM immediately
+        if (context) {
+          await context.close().catch(() => {});
+        }
       }
     }
 
@@ -202,7 +221,9 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
   } catch (fatalError) {
     sendLog(`Fatal Automation Engine Error: ${fatalError.message}`, 'error', true);
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 });
 
