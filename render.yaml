@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rexify-bot
+    env: node
+    plan: standard
+    buildCommand: npm install && npx puppeteer browsers install --with-dependencies chrome
+    startCommand: node server.js
+    envVars:
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: false
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /root/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome
+      - key: NODE_ENV
+        value: production
