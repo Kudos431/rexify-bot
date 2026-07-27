@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "npx puppeteer install chrome"
+    "postinstall": "npx puppeteer install"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
