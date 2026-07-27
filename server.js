@@ -126,11 +126,10 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
 
       let context;
       try {
-        // Updated: createBrowserContext() for isolated contexts in modern Puppeteer
         context = await browser.createBrowserContext();
-        const page = await context.newPage();
+        let page = await context.newPage();
 
-        // 📱 FORCE MOBILE EMULATION (Screen size, touch events, iOS User-Agent)
+        // 📱 FORCE MOBILE EMULATION
         await page.emulate(mobileDevice);
 
         // ==========================================
@@ -139,33 +138,60 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
         sendLog(`Navigating to target URL in mobile view...`);
         await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Wait & click 'Get started' using Puppeteer text selector
+        // Wait & click 'Get started'
         const getStartedBtn = await page.waitForSelector('text/Get started', { timeout: 15000 });
-        await getStartedBtn.click();
-        sendLog(`Clicked 'Get started'. Pausing 10s...`);
-        await delay(10000);
+        
+        // Wait for potential navigation or new tab on click
+        await Promise.all([
+          getStartedBtn.click(),
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
+        ]);
+
+        // Handle case where clicking opens a new target/tab
+        const pages = await context.pages();
+        if (pages.length > 1) {
+          page = pages[pages.length - 1];
+          await page.emulate(mobileDevice);
+        }
+
+        sendLog(`Clicked 'Get started'. Current URL: ${page.url()}`);
+        await delay(3000); // Give JS frameworks time to mount state
 
         // ==========================================
         // STEP 2: Registration
         // ==========================================
         sendLog(`Filling signup form with generated credentials...`);
-        await page.waitForSelector('input[type="email"]', { timeout: 15000 });
-        await page.type('input[type="email"]', randomEmail, { delay: 40 });
-        await page.type('input[type="password"]', randomPassword, { delay: 40 });
+        
+        // Dynamic selector resolution for email
+        const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { timeout: 15000 }).catch(async (e) => {
+          // Diagnostic log if input isn't found
+          const currentUrl = page.url();
+          const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 150));
+          throw new Error(`Email field not found. URL: ${currentUrl} | Snippet: ${bodyText.replace(/\n/g, ' ')}`);
+        });
+
+        await emailSelector.type(randomEmail, { delay: 40 });
+
+        const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 10000 });
+        await passSelector.type(randomPassword, { delay: 40 });
 
         const checkbox = await page.$('input[type="checkbox"]');
         if (checkbox) await checkbox.click();
 
         const continueBtn = await page.waitForSelector('text/Continue', { timeout: 15000 });
-        await continueBtn.click();
-        sendLog(`Clicked 'Continue'. Pausing 10s...`);
-        await delay(10000);
+        await Promise.all([
+          continueBtn.click(),
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {})
+        ]);
+
+        sendLog(`Clicked 'Continue'. Pausing 5s...`);
+        await delay(5000);
 
         // ==========================================
         // STEP 3: Setup Withdrawals using CSV details
         // ==========================================
         sendLog(`Applying mapped Bank (${bankName}) & Account Number (${accountNumber})...`);
-        await page.waitForSelector('input[placeholder*="account number"]', { timeout: 15000 });
+        await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { timeout: 15000 });
 
         // Select dropdown value with custom search fallback
         try {
@@ -187,24 +213,24 @@ app.post('/api/start', upload.single('csvFile'), async (req, res) => {
           }, bankName);
         }
 
-        await page.type('input[placeholder*="account number"]', accountNumber, { delay: 40 });
+        const accountInput = await page.$('input[placeholder*="account number" i], input[name*="account" i]');
+        await accountInput.type(accountNumber, { delay: 40 });
 
         const verifyBtn = await page.waitForSelector('text/Verify account', { timeout: 15000 });
         await verifyBtn.click();
-        sendLog(`Clicked 'Verify account'. Pausing 10s for API verification...`);
-        await delay(10000);
+        sendLog(`Clicked 'Verify account'. Pausing 8s for API verification...`);
+        await delay(8000);
 
         const finishBtn = await page.waitForSelector('text/Finish & continue', { timeout: 15000 });
         await finishBtn.click();
-        sendLog(`Clicked 'Finish & continue'. Pausing 10s...`);
-        await delay(10000);
+        sendLog(`Clicked 'Finish & continue'. Pausing 5s...`);
+        await delay(5000);
 
         sendLog(`Successfully finished account setup for: ${accountNumber}`, 'info');
 
       } catch (err) {
         sendLog(`Error processing row ${i + 1} (${accountNumber}): ${err.message}`, 'error');
       } finally {
-        // Safe context destruction to free remote memory immediately
         if (context) {
           await context.close().catch(() => {});
         }
