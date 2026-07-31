@@ -138,7 +138,6 @@ function parseUrlsBuffer(buffer) {
 }
 
 // Single Account Creation Handler with Steel Session Integration
-// -> Now accepts `targetUrl` dynamically
 async function processAccount(row, rowIndex, workerId, targetUrl) {
   const bankName = row.bankName || 'OPay';
   const accountNumber = row.accountNumber || row.account || Object.values(row)[0];
@@ -160,33 +159,31 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
 
     await page.emulate(mobileDevice);
-    page.setDefaultTimeout(25000);
 
-    // STEP 1: Landing Page (Uses dynamic targetUrl)
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+    // STEP 1: Landing Page (No timeout, waits endlessly until DOM loads)
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
     await randomDelay(1000, 2000);
 
-    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true });
     await randomDelay(500, 1000);
     await Promise.all([
       getStartedBtn.click(),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 0 }).catch(() => {})
     ]);
 
     const pages = await browser.pages();
     if (pages.length > 1) {
       page = pages[pages.length - 1];
       await page.emulate(mobileDevice);
-      page.setDefaultTimeout(25000);
     }
 
     await randomDelay(1500, 3000);
 
     // STEP 2: Registration
-    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true });
     await emailSelector.type(randomEmail, { delay: 50 });
 
-    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true });
     await passSelector.type(randomPassword, { delay: 50 });
 
     const checkbox = await page.$('input[type="checkbox"]');
@@ -194,11 +191,11 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
       await checkbox.click();
     }
 
-    const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+    const continueBtn = await page.waitForSelector('text/Continue', { visible: true });
     await randomDelay(600, 1200);
     await Promise.all([
       continueBtn.click(),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 0 }).catch(() => {})
     ]);
 
     await randomDelay(3000, 5000);
@@ -215,7 +212,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
       verifyAttempt++;
       sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt}/${MAX_VERIFY_ATTEMPTS} for ${accountNumber}...`);
 
-      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true });
 
       await accountInput.click({ clickCount: 3 });
       await accountInput.press('Backspace');
@@ -241,7 +238,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
         }, bankName);
       }
 
-      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 15000 });
+      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true });
       await randomDelay(500, 1000);
       await verifyBtn.click();
 
@@ -274,7 +271,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
     if (!isVerified) throw new Error(`Failed account verification after ${MAX_VERIFY_ATTEMPTS} attempts.`);
 
-    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
+    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true });
     await randomDelay(800, 1500);
     await finishBtn.click();
 
@@ -405,3 +402,4 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+                                 
