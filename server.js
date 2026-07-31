@@ -159,31 +159,38 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
 
     await page.emulate(mobileDevice);
+    // INCREASED: Global action default timeout (from 25s -> 60s)
+    page.setDefaultTimeout(60000);
 
-    // STEP 1: Landing Page (No timeout, waits endlessly until DOM loads)
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
+    // STEP 1: Landing Page
+    // INCREASED: Page navigation timeout (from 35s -> 60s) & changed strategy to 'domcontentloaded' for heavy sites
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await randomDelay(1000, 2000);
 
-    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true });
+    // INCREASED: Wait for button selector (from 15s -> 30s)
+    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 30000 });
     await randomDelay(500, 1000);
     await Promise.all([
       getStartedBtn.click(),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 0 }).catch(() => {})
+      // INCREASED: Wait for navigation (from 20s -> 45s)
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {})
     ]);
 
     const pages = await browser.pages();
     if (pages.length > 1) {
       page = pages[pages.length - 1];
       await page.emulate(mobileDevice);
+      page.setDefaultTimeout(60000);
     }
 
     await randomDelay(1500, 3000);
 
     // STEP 2: Registration
-    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true });
+    // INCREASED: Email & Password selector timeouts (from 10s-15s -> 30s)
+    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 30000 });
     await emailSelector.type(randomEmail, { delay: 50 });
 
-    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true });
+    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 30000 });
     await passSelector.type(randomPassword, { delay: 50 });
 
     const checkbox = await page.$('input[type="checkbox"]');
@@ -191,28 +198,29 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
       await checkbox.click();
     }
 
-    const continueBtn = await page.waitForSelector('text/Continue', { visible: true });
+    // INCREASED: Continue button selector (from 15s -> 30s) & navigation (from 20s -> 45s)
+    const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 30000 });
     await randomDelay(600, 1200);
     await Promise.all([
       continueBtn.click(),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 0 }).catch(() => {})
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {})
     ]);
 
     await randomDelay(3000, 5000);
 
-    // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
+    // STEP 3: Withdrawal Setup & Retry Verification Loop
     let isVerified = false;
     let verifyAttempt = 0;
     const MAX_VERIFY_ATTEMPTS = 2;
 
     while (!isVerified && verifyAttempt < MAX_VERIFY_ATTEMPTS) {
-      // Early exit if user clicked stop
       if (isStopping) throw new Error('Process forcefully stopped by user.');
 
       verifyAttempt++;
       sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt}/${MAX_VERIFY_ATTEMPTS} for ${accountNumber}...`);
 
-      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true });
+      // INCREASED: Account number field timeout (from 15s -> 30s)
+      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 30000 });
 
       await accountInput.click({ clickCount: 3 });
       await accountInput.press('Backspace');
@@ -238,14 +246,16 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
         }, bankName);
       }
 
-      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true });
+      // INCREASED: Verify button timeout (from 15s -> 30s)
+      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 30000 });
       await randomDelay(500, 1000);
       await verifyBtn.click();
 
       const startTime = Date.now();
       let status = 'pending';
 
-      while (Date.now() - startTime < 12000) {
+      // INCREASED: Polling window for verification response (from 12s -> 20s)
+      while (Date.now() - startTime < 20000) {
         const result = await page.evaluate(() => {
           const bodyText = document.body.innerText || '';
           if (bodyText.includes('Account name') || bodyText.includes('Verified')) return 'success';
@@ -271,7 +281,8 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
     if (!isVerified) throw new Error(`Failed account verification after ${MAX_VERIFY_ATTEMPTS} attempts.`);
 
-    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true });
+    // INCREASED: Finish button selector (from 15s -> 30s)
+    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 30000 });
     await randomDelay(800, 1500);
     await finishBtn.click();
 
@@ -402,4 +413,3 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-                                 
