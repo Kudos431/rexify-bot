@@ -159,56 +159,41 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
 
     await page.emulate(mobileDevice);
-    // INCREASED: Global action default timeout (from 25s -> 60s)
-    page.setDefaultTimeout(60000);
+    page.setDefaultTimeout(25000);
 
-    // STEP 1: Landing Page
-    // INCREASED: Page navigation timeout (from 35s -> 60s) & changed strategy to 'domcontentloaded' for heavy sites
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await randomDelay(1000, 2000);
+    // STEP 1: Landing Page (Uses dynamic targetUrl)
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 50000 });
+    await randomDelay(300, 600);
 
-    // INCREASED: Wait for button selector (from 15s -> 30s)
-    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 30000 });
-    await randomDelay(500, 1000);
-    await Promise.all([
-      getStartedBtn.click(),
-      // INCREASED: Wait for navigation (from 20s -> 45s)
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {})
-    ]);
+    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 45000 });
+    await randomDelay(200, 500);
+    await getStartedBtn.click();
 
+    // Check if new tab opened
     const pages = await browser.pages();
     if (pages.length > 1) {
       page = pages[pages.length - 1];
       await page.emulate(mobileDevice);
-      page.setDefaultTimeout(60000);
+      page.setDefaultTimeout(25000);
     }
 
-    await randomDelay(1500, 3000);
-
     // STEP 2: Registration
-    // INCREASED: Email & Password selector timeouts (from 10s-15s -> 30s)
-    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 30000 });
-    await emailSelector.type(randomEmail, { delay: 50 });
+    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 25000 });
+    await emailSelector.type(randomEmail, { delay: 10 });
 
-    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 30000 });
-    await passSelector.type(randomPassword, { delay: 50 });
+    const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 15000 });
+    await passSelector.type(randomPassword, { delay: 10 });
 
     const checkbox = await page.$('input[type="checkbox"]');
     if (checkbox) {
       await checkbox.click();
     }
 
-    // INCREASED: Continue button selector (from 15s -> 30s) & navigation (from 20s -> 45s)
-    const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 30000 });
-    await randomDelay(600, 1200);
-    await Promise.all([
-      continueBtn.click(),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {})
-    ]);
+    const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+    await randomDelay(300, 600);
+    await continueBtn.click();
 
-    await randomDelay(3000, 5000);
-
-    // STEP 3: Withdrawal Setup & Retry Verification Loop
+    // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
     let isVerified = false;
     let verifyAttempt = 0;
     const MAX_VERIFY_ATTEMPTS = 2;
@@ -219,13 +204,12 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
       verifyAttempt++;
       sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt}/${MAX_VERIFY_ATTEMPTS} for ${accountNumber}...`);
 
-      // INCREASED: Account number field timeout (from 15s -> 30s)
-      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 30000 });
+      const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 20000 });
 
       await accountInput.click({ clickCount: 3 });
       await accountInput.press('Backspace');
-      await randomDelay(300, 600);
-      await accountInput.type(accountNumber, { delay: 50 });
+      await randomDelay(200, 400);
+      await accountInput.type(accountNumber, { delay: 10 });
 
       try {
         await page.select('select', bankName);
@@ -246,15 +230,14 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
         }, bankName);
       }
 
-      // INCREASED: Verify button timeout (from 15s -> 30s)
-      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 30000 });
-      await randomDelay(500, 1000);
+      const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 15000 });
+      await randomDelay(300, 600);
       await verifyBtn.click();
 
       const startTime = Date.now();
       let status = 'pending';
 
-      // INCREASED: Polling window for verification response (from 12s -> 20s)
+      // Full 20s polling window preserved for verification check
       while (Date.now() - startTime < 20000) {
         const result = await page.evaluate(() => {
           const bodyText = document.body.innerText || '';
@@ -275,15 +258,14 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
         sendLog(`[Worker ${workerId}] Account verified successfully for ${accountNumber}!`, 'info');
       } else {
         sendLog(`[Worker ${workerId}] Verification returned '${status}' on attempt ${verifyAttempt}. Re-inputting...`, 'warn');
-        await randomDelay(1500, 3000);
+        await randomDelay(1000, 2000);
       }
     }
 
     if (!isVerified) throw new Error(`Failed account verification after ${MAX_VERIFY_ATTEMPTS} attempts.`);
 
-    // INCREASED: Finish button selector (from 15s -> 30s)
-    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 30000 });
-    await randomDelay(800, 1500);
+    const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
+    await randomDelay(400, 800);
     await finishBtn.click();
 
     sendLog(`[Worker ${workerId}] Clicked 'Finish & continue'. Stabilizing account (15s)...`);
@@ -342,10 +324,9 @@ app.post('/api/start', uploadMiddleware, async (req, res) => {
 
 // --- CORE LOGIC: THE MULTI-URL QUEUE ENGINE ---
 async function runMultiUrlEngine(accountRows, targetUrls) {
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 3; // Fixed to 3 stable workers
   const TARGET_SUCCESSES_PER_URL = 20;
 
-  // This index stays persistent across the entire session!
   let globalAccountIndex = 0; 
 
   sendLog(`\n🚀 ENGINE STARTED | Total Accounts: ${accountRows.length} | Total URLs: ${targetUrls.length}`, 'info');
@@ -367,11 +348,14 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
     const worker = async (workerId) => {
       while (currentUrlSuccesses < TARGET_SUCCESSES_PER_URL && !isStopping) {
 
-        // Grab the next account safely
-        if (globalAccountIndex >= accountRows.length) break; 
-
-        const myIndex = globalAccountIndex;
-        globalAccountIndex++; // Instantly increment so next worker gets a fresh account
+        // Thread-safe atomic account assignment
+        let myIndex = -1;
+        if (globalAccountIndex < accountRows.length) {
+          myIndex = globalAccountIndex;
+          globalAccountIndex++;
+        } else {
+          break; // Exhausted accounts
+        }
 
         const row = accountRows[myIndex];
 
@@ -388,11 +372,11 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
           sendLog(`❌ [Worker ${workerId}] Failed row ${myIndex + 1}. Continuing to next account...`, 'warn');
         }
 
-        await randomDelay(1000, 2500);
+        await randomDelay(1000, 2000);
       }
     };
 
-    // Spin up 5 parallel workers for this URL
+    // Spin up 3 parallel workers for this URL
     const workers = Array.from({ length: CONCURRENCY }, (_, i) => worker(i + 1));
     await Promise.all(workers);
 
