@@ -180,7 +180,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     }
 
     // STEP 2: Registration
-    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 25000 });
+    const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 45000 });
     await emailSelector.type(randomEmail, { delay: 10 });
 
     const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 15000 });
@@ -194,6 +194,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
     await randomDelay(300, 600);
     await continueBtn.click();
+    
 
     // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
     let isVerified = false;
