@@ -165,8 +165,10 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 50000 });
     await randomDelay(300, 600);
 
-    const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 45000 });
-    await randomDelay(200, 500);
+    const getStartedBtn = await page.waitForFunction(() => {
+    const elements = Array.from(document.querySelectorAll('button, a, div, span'));
+    return elements.find(el => el.textContent.trim().toLowerCase().includes('get started'));
+    }, { timeout: 45000 });
     await getStartedBtn.click();
 
     // Check if new tab opened
