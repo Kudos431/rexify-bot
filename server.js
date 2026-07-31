@@ -203,10 +203,10 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
     await randomDelay(3000, 5000);
 
-    // STEP 3: Withdrawal Setup & 7x Retry Verification Loop
+    // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
     let isVerified = false;
     let verifyAttempt = 0;
-    const MAX_VERIFY_ATTEMPTS = 7;
+    const MAX_VERIFY_ATTEMPTS = 2;
 
     while (!isVerified && verifyAttempt < MAX_VERIFY_ATTEMPTS) {
       // Early exit if user clicked stop
@@ -405,3 +405,4 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+      
