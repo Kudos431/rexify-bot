@@ -206,7 +206,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
     let isVerified = false;
     let verifyAttempt = 0;
-    const MAX_VERIFY_ATTEMPTS = 2;
+    const MAX_VERIFY_ATTEMPTS = 1;
 
     while (!isVerified && verifyAttempt < MAX_VERIFY_ATTEMPTS) {
       // Early exit if user clicked stop
