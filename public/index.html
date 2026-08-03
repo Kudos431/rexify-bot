@@ -59,90 +59,20 @@
     line-height: 1.1;
   }
 
-  form { display: block; }
-
-  .dropzone-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    margin-bottom: 16px;
-  }
-
-  @media (max-width: 480px) {
-    .dropzone-grid { grid-template-columns: 1fr; }
-  }
-
-  .dropzone {
-    position: relative;
-    border: 2px dashed var(--grey-700);
-    border-radius: 16px;
-    height: 190px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
+  .status-card {
     background: var(--grey-950);
-    padding: 0 16px;
+    border: 1px solid var(--grey-800);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
     text-align: center;
   }
 
-  .dropzone:hover, .dropzone.dragover {
-    border-color: var(--white);
-    background: var(--grey-900);
+  .status-card p {
+    font-size: 0.9rem;
+    color: var(--grey-300);
+    margin-bottom: 20px;
   }
-
-  .dropzone.has-file {
-    border-style: solid;
-    border-color: var(--white);
-    background: var(--grey-900);
-  }
-
-  .plus-ring {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    border: 2px solid var(--grey-500);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 16px;
-    transition: border-color 0.15s ease, transform 0.15s ease;
-  }
-
-  .dropzone:hover .plus-ring, .dropzone.dragover .plus-ring {
-    border-color: var(--white);
-    transform: scale(1.06);
-  }
-
-  .plus-ring svg { width: 20px; height: 20px; }
-
-  .dz-title {
-    font-size: 0.92rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-  }
-
-  .dz-sub {
-    font-size: 0.74rem;
-    font-weight: 500;
-    color: var(--grey-500);
-    margin-top: 6px;
-  }
-
-  .dz-tag {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--grey-500);
-    position: absolute;
-    top: 14px;
-    left: 16px;
-  }
-
-  input[type="file"] { display: none; }
 
   .btn-row {
     display: grid;
@@ -267,54 +197,24 @@
       <h1>Automation control</h1>
     </div>
 
-    <form id="uploadForm">
-      <div class="dropzone-grid">
-        <label for="accountsFile">
-          <div class="dropzone" id="accountsZone">
-            <span class="dz-tag">accounts.csv</span>
-            <div class="plus-ring">
-              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </div>
-            <div class="dz-title" id="accountsTitle">Upload account details</div>
-            <div class="dz-sub" id="accountsSub">Bank name and account number</div>
-          </div>
-        </label>
-        <label for="emailsFile">
-          <div class="dropzone" id="emailsZone">
-            <span class="dz-tag">emails.csv</span>
-            <div class="plus-ring">
-              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </div>
-            <div class="dz-title" id="emailsTitle">Upload email details</div>
-            <div class="dz-sub" id="emailsSub">One email per row</div>
-          </div>
-        </label>
-      </div>
-      <input type="file" id="accountsFile" accept=".csv" required />
-      <input type="file" id="emailsFile" accept=".csv" required />
+    <div class="status-card">
+      <p>Self-generating referral network engine is ready. Click start to launch autonomous execution.</p>
       <div class="btn-row">
-        <button type="submit" id="startBtn">Start automation</button>
+        <button type="button" id="startBtn">Start automation</button>
         <button type="button" id="stopBtn" disabled>Stop</button>
       </div>
-    </form>
+    </div>
 
     <div class="terminal-section">
       <div class="terminal-label"><span class="dot"></span>Live output</div>
       <div class="terminal" id="terminal">
-        <div class="log-line log-info"><span class="ts">00:00:00</span>System ready. Upload a CSV to begin.</div>
+        <div class="log-line log-info"><span class="ts">00:00:00</span>System ready. Click start automation to begin.</div>
       </div>
     </div>
   </div>
 
   <script>
     const terminal = document.getElementById('terminal');
-    const form = document.getElementById('uploadForm');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
 
@@ -329,48 +229,6 @@
       terminal.appendChild(line);
       terminal.scrollTop = terminal.scrollHeight;
     }
-
-    function wireDropzone({ zoneId, inputId, titleId, subId, readyLabel }) {
-      const zone = document.getElementById(zoneId);
-      const input = document.getElementById(inputId);
-      const title = document.getElementById(titleId);
-      const sub = document.getElementById(subId);
-
-      input.addEventListener('change', () => {
-        if (input.files[0]) {
-          zone.classList.add('has-file');
-          title.textContent = input.files[0].name;
-          sub.textContent = readyLabel;
-        }
-      });
-
-      ['dragover', 'dragleave', 'drop'].forEach(evt => {
-        zone.addEventListener(evt, (e) => {
-          e.preventDefault();
-          if (evt === 'dragover') zone.classList.add('dragover');
-          else zone.classList.remove('dragover');
-        });
-      });
-
-      zone.addEventListener('drop', (e) => {
-        const file = e.dataTransfer.files[0];
-        if (file) {
-          input.files = e.dataTransfer.files;
-          input.dispatchEvent(new Event('change'));
-        }
-      });
-    }
-
-    wireDropzone({
-      zoneId: 'accountsZone', inputId: 'accountsFile',
-      titleId: 'accountsTitle', subId: 'accountsSub',
-      readyLabel: 'Ready to upload'
-    });
-    wireDropzone({
-      zoneId: 'emailsZone', inputId: 'emailsFile',
-      titleId: 'emailsTitle', subId: 'emailsSub',
-      readyLabel: 'Ready to upload'
-    });
 
     function setRunningState(isRunning) {
       startBtn.disabled = isRunning;
@@ -388,21 +246,12 @@
       };
     } catch (e) {}
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const accountsFile = document.getElementById('accountsFile');
-      const emailsFile = document.getElementById('emailsFile');
-      if (!accountsFile.files[0] || !emailsFile.files[0]) return;
-
-      const formData = new FormData();
-      formData.append('accountsFile', accountsFile.files[0]);
-      formData.append('emailsFile', emailsFile.files[0]);
-
+    startBtn.addEventListener('click', async () => {
       setRunningState(true);
-      appendLog('Uploading files and starting task loop...', 'info');
+      appendLog('Initializing self-generating referral engine...', 'info');
 
       try {
-        const response = await fetch('/api/start', { method: 'POST', body: formData });
+        const response = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const result = await response.json();
         if (!result.success) {
           appendLog(`Error: ${result.error}`, 'error');
@@ -417,10 +266,10 @@
     stopBtn.addEventListener('click', async () => {
       stopBtn.disabled = true;
       stopBtn.textContent = 'Stopping...';
-      appendLog('Stop signal sent. Waiting for current task to finish...', 'info');
+      appendLog('Stop signal sent. Waiting for current cycle to finish...', 'info');
 
       try {
-        const response = await fetch('/api/stop', { method: 'POST' });
+        const response = await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const result = await response.json();
         if (!result.success) {
           appendLog(`Error: ${result.error}`, 'error');
