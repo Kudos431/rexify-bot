@@ -81,12 +81,21 @@ async function runAutomationEngine() {
 
           await page.goto(rootRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
-          // Click "Get started — it's free" button on homepage
-          const getStartedBtn = await page.waitForSelector('a[href*="/user/register"], button', { visible: true, timeout: 10000 });
-          if (getStartedBtn) {
-            await getStartedBtn.evaluate(el => el.scrollIntoView());
-            await getStartedBtn.click();
+          // Click "Get started" button dynamically by text content
+          const getStartedBtn = await page.evaluateHandle(() => {
+            const elements = Array.from(document.querySelectorAll('a, button'));
+            return elements.find(el => el.innerText.includes('Get started'));
+          });
+          if (getStartedBtn && getStartedBtn.asElement()) {
+            await getStartedBtn.asElement().evaluate(el => {
+              el.scrollIntoView();
+              el.click();
+            });
+          } else {
+            // Fallback direct navigation if button isn't caught
+            await page.goto('https://rexify.com.ng/user/register?reference=bkolawole56', { waitUntil: 'networkidle0' });
           }
+
           await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
 
           await page.waitForSelector('input[type="email"]', { timeout: 10000 });
@@ -105,7 +114,7 @@ async function runAutomationEngine() {
             const buttons = Array.from(document.querySelectorAll('button'));
             return buttons.find(b => b.innerText.includes('Continue'));
           });
-          if (continueBtn) {
+          if (continueBtn && continueBtn.asElement()) {
             await continueBtn.asElement().evaluate(el => {
               el.scrollIntoView();
               el.click();
@@ -135,7 +144,6 @@ async function runAutomationEngine() {
             });
           });
 
-          // Fallback custom dropdown click if select tag isn't standard
           await page.evaluate(() => {
             const divs = Array.from(document.querySelectorAll('div'));
             const bankDiv = divs.find(d => d.innerText.includes('Select your bank'));
@@ -150,7 +158,6 @@ async function runAutomationEngine() {
             if (opayOpt) opayOpt.click();
           }).catch(() => {});
 
-          // Input account number into 10-11 digit field
           const inputFields = await page.$$('input');
           for (let input of inputFields) {
             const placeholder = await page.evaluate(el => el.placeholder, input);
@@ -161,12 +168,11 @@ async function runAutomationEngine() {
             }
           }
 
-          // Click "Verify account" button
           const verifyBtn = await page.evaluateHandle(() => {
             const buttons = Array.from(document.querySelectorAll('button'));
             return buttons.find(b => b.innerText.includes('Verify account'));
           });
-          if (verifyBtn) {
+          if (verifyBtn && verifyBtn.asElement()) {
             await verifyBtn.asElement().evaluate(el => {
               el.scrollIntoView();
               el.click();
@@ -187,12 +193,11 @@ async function runAutomationEngine() {
             verified = true;
             broadcastLog(`✅ Opay number ${parentAccountNum} verified successfully! Clicking Finish...`, 'info');
             
-            // Click "Finish & continue" button
             const finishBtn = await page.evaluateHandle(() => {
               const buttons = Array.from(document.querySelectorAll('button'));
               return buttons.find(b => b.innerText.includes('Finish & continue'));
             });
-            if (finishBtn) {
+            if (finishBtn && finishBtn.asElement()) {
               await finishBtn.asElement().evaluate(el => {
                 el.scrollIntoView();
                 el.click();
@@ -247,11 +252,19 @@ async function runAutomationEngine() {
 
             await page.goto(parentRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
-            const getStartedBtn = await page.waitForSelector('a[href*="/user/register"], button', { visible: true, timeout: 10000 });
-            if (getStartedBtn) {
-              await getStartedBtn.evaluate(el => el.scrollIntoView());
-              await getStartedBtn.click();
+            const getStartedBtn = await page.evaluateHandle(() => {
+              const elements = Array.from(document.querySelectorAll('a, button'));
+              return elements.find(el => el.innerText.includes('Get started'));
+            });
+            if (getStartedBtn && getStartedBtn.asElement()) {
+              await getStartedBtn.asElement().evaluate(el => {
+                el.scrollIntoView();
+                el.click();
+              });
+            } else {
+              await page.goto(`${parentRefUrl}&action=register`, { waitUntil: 'networkidle0' });
             }
+
             await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
 
             await page.waitForSelector('input[type="email"]', { timeout: 10000 });
@@ -268,7 +281,7 @@ async function runAutomationEngine() {
               const buttons = Array.from(document.querySelectorAll('button'));
               return buttons.find(b => b.innerText.includes('Continue'));
             });
-            if (continueBtn) {
+            if (continueBtn && continueBtn.asElement()) {
               await continueBtn.asElement().evaluate(el => {
                 el.scrollIntoView();
                 el.click();
@@ -325,7 +338,7 @@ async function runAutomationEngine() {
               const buttons = Array.from(document.querySelectorAll('button'));
               return buttons.find(b => b.innerText.includes('Verify account'));
             });
-            if (verifyBtn) {
+            if (verifyBtn && verifyBtn.asElement()) {
               await verifyBtn.asElement().evaluate(el => {
                 el.scrollIntoView();
                 el.click();
@@ -350,7 +363,7 @@ async function runAutomationEngine() {
                 const buttons = Array.from(document.querySelectorAll('button'));
                 return buttons.find(b => b.innerText.includes('Finish & continue'));
               });
-              if (finishBtn) {
+              if (finishBtn && finishBtn.asElement()) {
                 await finishBtn.asElement().evaluate(el => {
                   el.scrollIntoView();
                   el.click();
@@ -409,4 +422,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-                
+                                            
