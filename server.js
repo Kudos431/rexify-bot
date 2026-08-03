@@ -77,73 +77,77 @@ async function runAutomationEngine() {
       let parentRefUrl = null;
 
       while (isRunning && !isStopping && !parentRefUrl) {
-        // FIXED: Email and Password are generated ONCE for this account attempt, outside the number loop
         const parentEmail = generateRandomEmail();
         const password = generateRandomPassword();
         let verified = false;
 
-        // Keep trying different phone numbers with THIS SAME email until it succeeds
-        while (isRunning && !isStopping && !parentRefUrl && !verified) {
-          const parentAccountNum = generateOpayAccountNumber();
-          broadcastLog(`Parent Trial | Email: ${parentEmail} | Opay: ${parentAccountNum}`, 'info');
+        let session = null;
+        let browser = null;
 
-          let session = null;
-          let browser = null;
+        try {
+          if (isStopping) break;
 
-          try {
-            if (isStopping) break;
+          // Open browser session ONCE for this email address
+          session = await steel.sessions.create({});
+          browser = await puppeteer.connect({
+            browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
+          });
 
-            session = await steel.sessions.create({});
-            browser = await puppeteer.connect({
-              browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
-            });
+          const openPages = await browser.pages();
+          let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
 
-            const openPages = await browser.pages();
-            let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
+          await page.emulate(mobileDevice);
+          page.setDefaultTimeout(30000);
 
-            await page.emulate(mobileDevice);
-            page.setDefaultTimeout(30000);
+          await page.goto(rootRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+          await randomDelay(1500, 2500);
 
-            await page.goto(rootRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
-            await randomDelay(1500, 2500);
+          const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
+          await randomDelay(500, 1000);
+          await Promise.all([
+            getStartedBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25005 }).catch(() => {})
+          ]);
 
-            const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
-            await randomDelay(500, 1000);
-            await Promise.all([
-              getStartedBtn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
-            ]);
+          await randomDelay(1500, 3000);
 
-            await randomDelay(1500, 3000);
+          const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+          await emailSelector.type(parentEmail, { delay: 50 });
 
-            const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
-            await emailSelector.type(parentEmail, { delay: 50 });
+          const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+          await passSelector.type(password, { delay: 50 });
 
-            const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
-            await passSelector.type(password, { delay: 50 });
+          const checkbox = await page.$('input[type="checkbox"]');
+          if (checkbox) {
+            await checkbox.click();
+          }
 
-            const checkbox = await page.$('input[type="checkbox"]');
-            if (checkbox) {
-              await checkbox.click();
-            }
+          const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+          await randomDelay(600, 1200);
+          await Promise.all([
+            continueBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+          ]);
 
-            const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
-            await randomDelay(600, 1200);
-            await Promise.all([
-              continueBtn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
-            ]);
+          await randomDelay(2000, 3000);
+          const errorText = await page.evaluate(() => document.body.innerText);
+          if (errorText.includes('already been taken')) {
+            broadcastLog(`❌ Email already taken. Retrying with a new email...`, 'error');
+            if (browser) await browser.disconnect().catch(() => {});
+            if (session) await steel.sessions.release(session.id).catch(() => {});
+            continue;
+          }
 
-            await randomDelay(2000, 3000);
-            const errorText = await page.evaluate(() => document.body.innerText);
-            if (errorText.includes('already been taken')) {
-              broadcastLog(`❌ Email already taken. Retrying with a new email...`, 'error');
-              if (browser) await browser.disconnect().catch(() => {});
-              if (session) await steel.sessions.release(session.id).catch(() => {});
-              break; // Breaks inner number loop to generate a brand new email
-            }
+          // Inner loop: Keep trying phone numbers ON THIS SAME PAGE without leaving/restarting
+          while (!verified && isRunning && !isStopping) {
+            const parentAccountNum = generateOpayAccountNumber();
+            broadcastLog(`Parent Trial | Email: ${parentEmail} | Opay: ${parentAccountNum}`, 'info');
 
             const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+            
+            // Clear previous number before typing new one
+            await accountInput.click({ clickCount: 3 });
+            await page.keyboard.press('Backspace');
             await accountInput.type(parentAccountNum, { delay: 50 });
 
             try {
@@ -170,11 +174,11 @@ async function runAutomationEngine() {
             const pageContent = await page.evaluate(() => document.body.innerText);
 
             if (pageContent.includes('already linked to another Rexify account')) {
-              broadcastLog(`❌ Opay number ${parentAccountNum} is already linked. Trying next number...`, 'error');
+              broadcastLog(`❌ Opay number ${parentAccountNum} is already linked. Trying next number on same page...`, 'error');
             } else if (pageContent.includes('Could not resolve account name')) {
-              broadcastLog(`❌ Opay number ${parentAccountNum} cannot be resolved. Trying next number...`, 'error');
+              broadcastLog(`❌ Opay number ${parentAccountNum} cannot be resolved. Trying next number on same page...`, 'error');
             } else if (pageContent.includes('Invalid')) {
-              broadcastLog(`❌ Opay number ${parentAccountNum} is marked Invalid. Trying next number...`, 'error');
+              broadcastLog(`❌ Opay number ${parentAccountNum} is marked Invalid. Trying next number on same page...`, 'error');
             } else if (pageContent.includes('Account verified') || pageContent.includes('Account name') || pageContent.includes('Verified')) {
               verified = true;
               broadcastLog(`✅ Opay number ${parentAccountNum} verified successfully! Clicking Finish...`, 'info');
@@ -191,17 +195,21 @@ async function runAutomationEngine() {
               broadcastLog(`⚠️ Verification state unclear for ${parentAccountNum}. Retrying number...`, 'error');
             }
 
-            if (browser) await browser.disconnect().catch(() => {});
-            if (session) await steel.sessions.release(session.id).catch(() => {});
-          } catch (err) {
-            broadcastLog(`Parent automation error: ${err.message}. Retrying...`, 'error');
-            if (browser) await browser.disconnect().catch(() => {});
-            if (session) await steel.sessions.release(session.id).catch(() => {});
+            if (!verified) {
+              await randomDelay(2000, 4000);
+            }
           }
 
-          if (!verified && !parentRefUrl) {
-            await randomDelay(2000, 4000);
-          }
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
+        } catch (err) {
+          broadcastLog(`Parent automation error: ${err.message}. Retrying...`, 'error');
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
+        }
+
+        if (!parentRefUrl) {
+          await randomDelay(2000, 4000);
         }
       }
 
@@ -215,72 +223,75 @@ async function runAutomationEngine() {
       const targetCount = 20;
 
       while (completedCount < targetCount && isRunning && !isStopping) {
-        // FIXED: Sub-email and password generated ONCE for this account attempt
         let subEmail = generateRandomEmail();
         let subPassword = generateRandomPassword();
         let subVerified = false;
 
-        while (!subVerified && isRunning && !isStopping) {
-          let subAccountNum = generateOpayAccountNumber();
-          broadcastLog(`Sub ${completedCount + 1}/${targetCount} | Email: ${subEmail} | Opay: ${subAccountNum}`, 'info');
+        let session = null;
+        let browser = null;
 
-          let session = null;
-          let browser = null;
+        try {
+          if (isStopping) break;
 
-          try {
-            if (isStopping) break;
+          session = await steel.sessions.create({});
+          browser = await puppeteer.connect({
+            browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
+          });
 
-            session = await steel.sessions.create({});
-            browser = await puppeteer.connect({
-              browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
-            });
+          const openPages = await browser.pages();
+          let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
 
-            const openPages = await browser.pages();
-            let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
+          await page.emulate(mobileDevice);
+          page.setDefaultTimeout(30000);
 
-            await page.emulate(mobileDevice);
-            page.setDefaultTimeout(30000);
+          await page.goto(parentRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+          await randomDelay(1500, 2500);
 
-            await page.goto(parentRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
-            await randomDelay(1500, 2500);
+          const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
+          await randomDelay(500, 1000);
+          await Promise.all([
+            getStartedBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25005 }).catch(() => {})
+          ]);
 
-            const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
-            await randomDelay(500, 1000);
-            await Promise.all([
-              getStartedBtn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25005 }).catch(() => {})
-            ]);
+          await randomDelay(1500, 3000);
 
-            await randomDelay(1500, 3000);
+          const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+          await emailSelector.type(subEmail, { delay: 50 });
 
-            const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
-            await emailSelector.type(subEmail, { delay: 50 });
+          const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+          await passSelector.type(subPassword, { delay: 50 });
 
-            const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
-            await passSelector.type(subPassword, { delay: 50 });
+          const checkbox = await page.$('input[type="checkbox"]');
+          if (checkbox) {
+            await checkbox.click();
+          }
 
-            const checkbox = await page.$('input[type="checkbox"]');
-            if (checkbox) {
-              await checkbox.click();
-            }
+          const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+          await randomDelay(600, 1200);
+          await Promise.all([
+            continueBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+          ]);
 
-            const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
-            await randomDelay(600, 1200);
-            await Promise.all([
-              continueBtn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
-            ]);
+          await randomDelay(2000, 3000);
+          const errorText = await page.evaluate(() => document.body.innerText);
+          if (errorText.includes('already been taken')) {
+            broadcastLog(`❌ Sub email already taken. Retrying with a new email...`, 'error');
+            if (browser) await browser.disconnect().catch(() => {});
+            if (session) await steel.sessions.release(session.id).catch(() => {});
+            continue;
+          }
 
-            await randomDelay(2000, 3000);
-            const errorText = await page.evaluate(() => document.body.innerText);
-            if (errorText.includes('already been taken')) {
-              broadcastLog(`❌ Sub email already taken. Retrying with a new email...`, 'error');
-              if (browser) await browser.disconnect().catch(() => {});
-              if (session) await steel.sessions.release(session.id).catch(() => {});
-              break; // Breaks inner number loop to generate a brand new email
-            }
+          // Inner loop for sub-accounts on the same page
+          while (!subVerified && isRunning && !isStopping) {
+            let subAccountNum = generateOpayAccountNumber();
+            broadcastLog(`Sub ${completedCount + 1}/${targetCount} | Email: ${subEmail} | Opay: ${subAccountNum}`, 'info');
 
             const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+            
+            await accountInput.click({ clickCount: 3 });
+            await page.keyboard.press('Backspace');
             await accountInput.type(subAccountNum, { delay: 50 });
 
             try {
@@ -307,11 +318,11 @@ async function runAutomationEngine() {
             const pageContent = await page.evaluate(() => document.body.innerText);
 
             if (pageContent.includes('already linked to another Rexify account')) {
-              broadcastLog(`❌ Sub Opay number ${subAccountNum} already linked. Swapping number...`, 'error');
+              broadcastLog(`❌ Sub Opay number ${subAccountNum} already linked. Swapping number on same page...`, 'error');
             } else if (pageContent.includes('Could not resolve account name')) {
-              broadcastLog(`❌ Sub Opay number ${subAccountNum} cannot be resolved. Swapping number...`, 'error');
+              broadcastLog(`❌ Sub Opay number ${subAccountNum} cannot be resolved. Swapping number on same page...`, 'error');
             } else if (pageContent.includes('Invalid')) {
-              broadcastLog(`❌ Sub Opay number ${subAccountNum} is marked Invalid. Swapping number...`, 'error');
+              broadcastLog(`❌ Sub Opay number ${subAccountNum} is marked Invalid. Swapping number on same page...`, 'error');
             } else if (pageContent.includes('Account verified') || pageContent.includes('Account name') || pageContent.includes('Verified')) {
               subVerified = true;
               broadcastLog(`✅ Sub Opay number ${subAccountNum} verified successfully! Clicking Finish...`, 'info');
@@ -327,17 +338,17 @@ async function runAutomationEngine() {
               broadcastLog(`⚠️ Sub verification state unclear for ${subAccountNum}. Retrying number...`, 'error');
             }
 
-            if (browser) await browser.disconnect().catch(() => {});
-            if (session) await steel.sessions.release(session.id).catch(() => {});
-          } catch (err) {
-            broadcastLog(`Sub-account error: ${err.message}. Retrying...`, 'error');
-            if (browser) await browser.disconnect().catch(() => {});
-            if (session) await steel.sessions.release(session.id).catch(() => {});
+            if (!subVerified) {
+              await randomDelay(2000, 4000);
+            }
           }
 
-          if (!subVerified) {
-            await randomDelay(2000, 4000);
-          }
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
+        } catch (err) {
+          broadcastLog(`Sub-account error: ${err.message}. Retrying...`, 'error');
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
         }
       }
 
