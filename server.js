@@ -318,7 +318,6 @@ app.post('/api/start', uploadMiddleware, async (req, res) => {
 
 // --- CORE LOGIC: SINGLE URL CUSTOM EMAIL ENGINE ---
 async function runEngine(accountRows, emailRows, targetUrl) {
-  // Target set to 200 so it goes through your 200 emails
   const TARGET_SUCCESSES = 200; 
 
   let globalAccountIndex = 0; 
@@ -334,17 +333,15 @@ async function runEngine(accountRows, emailRows, targetUrl) {
       break;
     }
 
-    // Grab the next custom email
     const emailRow = emailRows[globalEmailIndex];
     const currentEmail = emailRow.email || Object.values(emailRow)[0];
     const currentPassword = generateRandomPassword();
 
-    globalEmailIndex++; // Move to next email for the next attempt
+    globalEmailIndex++; 
 
     sendLog(`\n📧 USING UPLOADED EMAIL (${globalEmailIndex}/${emailRows.length}): ${currentEmail}`, 'info');
     let emailSuccess = false;
 
-    // Test account numbers sequentially with THIS email until it successfully verifies
     while (!emailSuccess && currentSuccesses < TARGET_SUCCESSES && !isStopping) {
       if (globalAccountIndex >= accountRows.length) break;
 
