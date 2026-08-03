@@ -1,7 +1,10 @@
 const express = require('express');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const Steel = require('steel-sdk').default;
+
 const app = express();
+const steel = new Steel({ steelAPIKey: process.env.STEEL_API_KEY });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -52,24 +55,27 @@ app.post('/api/start', async (req, res) => {
       while (isRunning && !isStopping) {
         const email = generateRandomEmail();
         const accountNum = generateOpayAccountNumber();
-        const password = 'Password0123!';
 
         broadcastLog(`Account #${totalCreated + 1} | Using Email: ${email} | Account: ${accountNum}`, 'info');
 
-        const browser = await puppeteer.launch({ 
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-
+        let session;
+        let browser;
         try {
+          session = await steel.sessions.create();
+          browser = await puppeteer.connect({
+            browserWSEndpoint: session.websocketUrl,
+          });
+
+          const page = await browser.newPage();
           await page.goto(currentRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+          
           totalCreated++;
           broadcastLog(`Successfully processed account #${totalCreated}`, 'info');
         } catch (err) {
           broadcastLog(`Automation error: ${err.message}`, 'error');
         } finally {
-          await browser.close();
+          if (browser) await browser.close().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
         }
 
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -120,3 +126,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+        
