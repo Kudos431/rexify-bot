@@ -22,13 +22,13 @@ function broadcastLog(message, type = 'info') {
   io.emit('log', { message, type, timestamp: new Date().toLocaleTimeString() });
 }
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const randomDelay = (min = 1000, max = 3000) => 
+  delay(Math.floor(Math.random() * (max - min + 1)) + min);
+
 function generateRandomEmail() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let randStr = '';
-  for (let i = 0; i < 8; i++) {
-    randStr += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `rexify_${randStr}@gmail.com`;
+  const randStr = Math.random().toString(36).substring(2, 8);
+  return `rexify_${Date.now()}_${randStr}@gmail.com`;
 }
 
 function generateOpayAccountNumber() {
@@ -42,7 +42,7 @@ function generateOpayAccountNumber() {
 }
 
 function generateRandomPassword() {
-  return 'Pass_' + Math.random().toString(36).slice(-8) + '!1';
+  return `Pass!${Math.random().toString(36).slice(-8)}`;
 }
 
 async function runAutomationEngine() {
@@ -78,50 +78,39 @@ async function runAutomationEngine() {
           const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
           browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
           const page = await browser.newPage();
+          page.setDefaultTimeout(25000);
 
-          await page.goto(rootRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+          await page.goto(rootRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+          await randomDelay(1000, 2000);
 
-          // Click "Get started" button dynamically by text content
-          const getStartedBtn = await page.evaluateHandle(() => {
-            const elements = Array.from(document.querySelectorAll('a, button'));
-            return elements.find(el => el.innerText.includes('Get started'));
-          });
-          if (getStartedBtn && getStartedBtn.asElement()) {
-            await getStartedBtn.asElement().evaluate(el => {
-              el.scrollIntoView();
-              el.click();
-            });
-          } else {
-            // Fallback direct navigation if button isn't caught
-            await page.goto('https://rexify.com.ng/user/register?reference=bkolawole56', { waitUntil: 'networkidle0' });
+          const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+          await randomDelay(500, 1000);
+          await Promise.all([
+            getStartedBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+          ]);
+
+          await randomDelay(1500, 3000);
+
+          const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+          await emailSelector.type(parentEmail, { delay: 50 });
+
+          const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+          await passSelector.type(password, { delay: 50 });
+
+          const checkbox = await page.$('input[type="checkbox"]');
+          if (checkbox) {
+            await checkbox.click();
           }
 
-          await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
+          const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+          await randomDelay(600, 1200);
+          await Promise.all([
+            continueBtn.click(),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+          ]);
 
-          await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-          await page.type('input[type="email"]', parentEmail);
-          await page.type('input[type="password"]', password);
-          
-          // Safe terms checkbox click
-          const termsCheckbox = await page.$('input[type="checkbox"]');
-          if (termsCheckbox) {
-            await termsCheckbox.evaluate(el => el.scrollIntoView());
-            await termsCheckbox.click();
-          }
-
-          // Click precise "Continue" button
-          const continueBtn = await page.evaluateHandle(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.find(b => b.innerText.includes('Continue'));
-          });
-          if (continueBtn && continueBtn.asElement()) {
-            await continueBtn.asElement().evaluate(el => {
-              el.scrollIntoView();
-              el.click();
-            });
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await randomDelay(2000, 3000);
           const errorText = await page.evaluate(() => document.body.innerText);
           if (errorText.includes('already been taken')) {
             broadcastLog(`❌ Email already taken. Retrying with a new email...`, 'error');
@@ -129,81 +118,47 @@ async function runAutomationEngine() {
             continue;
           }
 
-          await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
+          // Step 2: Select Bank -> Opay & Input Number
+          const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+          await accountInput.type(parentAccountNum, { delay: 50 });
 
-          // Step 2: Select Bank -> Opay & Input Number Loop
-          await page.evaluate(() => {
-            const selects = document.querySelectorAll('select');
-            selects.forEach(s => {
-              for (let i = 0; i < s.options.length; i++) {
-                if (s.options[i].text.includes('Opay')) {
-                  s.selectedIndex = i;
-                  s.dispatchEvent(new Event('change', { bubbles: true }));
+          try {
+            await page.select('select', 'OPay');
+          } catch (e) {
+            await page.evaluate(() => {
+              const select = document.querySelector('select');
+              if (!select) return;
+              for (let option of select.options) {
+                if (option.text.toLowerCase().includes('opay') || option.value.toLowerCase().includes('opay')) {
+                  select.value = option.value;
+                  select.dispatchEvent(new Event('change', { bubbles: true }));
+                  break;
                 }
               }
             });
-          });
-
-          await page.evaluate(() => {
-            const divs = Array.from(document.querySelectorAll('div'));
-            const bankDiv = divs.find(d => d.innerText.includes('Select your bank'));
-            if (bankDiv) bankDiv.click();
-          }).catch(() => {});
-          
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          await page.evaluate(() => {
-            const divs = Array.from(document.querySelectorAll('div, span'));
-            const opayOpt = divs.find(d => d.textContent.trim() === 'Opay');
-            if (opayOpt) opayOpt.click();
-          }).catch(() => {});
-
-          const inputFields = await page.$$('input');
-          for (let input of inputFields) {
-            const placeholder = await page.evaluate(el => el.placeholder, input);
-            if (placeholder && placeholder.includes('digit')) {
-              await input.evaluate(el => el.scrollIntoView());
-              await input.type(parentAccountNum);
-              break;
-            }
           }
 
-          const verifyBtn = await page.evaluateHandle(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.find(b => b.innerText.includes('Verify account'));
-          });
-          if (verifyBtn && verifyBtn.asElement()) {
-            await verifyBtn.asElement().evaluate(el => {
-              el.scrollIntoView();
-              el.click();
-            });
-          }
+          const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 15000 });
+          await randomDelay(500, 1000);
+          await verifyBtn.click();
 
-          await new Promise(resolve => setTimeout(resolve, 5000));
-
+          await randomDelay(5000, 7000);
           const pageContent = await page.evaluate(() => document.body.innerText);
-          
+
           if (pageContent.includes('already linked to another Rexify account')) {
             broadcastLog(`❌ Opay number ${parentAccountNum} is already linked. Trying next number...`, 'error');
           } else if (pageContent.includes('Could not resolve account name')) {
             broadcastLog(`❌ Opay number ${parentAccountNum} cannot be resolved. Trying next number...`, 'error');
           } else if (pageContent.includes('Invalid')) {
             broadcastLog(`❌ Opay number ${parentAccountNum} is marked Invalid. Trying next number...`, 'error');
-          } else if (pageContent.includes('Account verified') || pageContent.includes('Account name')) {
+          } else if (pageContent.includes('Account verified') || pageContent.includes('Account name') || pageContent.includes('Verified')) {
             verified = true;
             broadcastLog(`✅ Opay number ${parentAccountNum} verified successfully! Clicking Finish...`, 'info');
-            
-            const finishBtn = await page.evaluateHandle(() => {
-              const buttons = Array.from(document.querySelectorAll('button'));
-              return buttons.find(b => b.innerText.includes('Finish & continue'));
-            });
-            if (finishBtn && finishBtn.asElement()) {
-              await finishBtn.asElement().evaluate(el => {
-                el.scrollIntoView();
-                el.click();
-              });
-            }
-            await new Promise(resolve => setTimeout(resolve, 4000));
+
+            const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
+            await randomDelay(800, 1500);
+            await finishBtn.click();
+            await delay(4000);
 
             const username = parentEmail.split('@')[0];
             parentRefUrl = `https://rexify.com.ng/?reference=${username}`;
@@ -219,7 +174,7 @@ async function runAutomationEngine() {
         }
 
         if (!parentRefUrl) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await randomDelay(2000, 4000);
         }
       }
 
@@ -249,46 +204,39 @@ async function runAutomationEngine() {
             const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
             browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
             const page = await browser.newPage();
+            page.setDefaultTimeout(25000);
 
-            await page.goto(parentRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+            await page.goto(parentRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
+            await randomDelay(1000, 2000);
 
-            const getStartedBtn = await page.evaluateHandle(() => {
-              const elements = Array.from(document.querySelectorAll('a, button'));
-              return elements.find(el => el.innerText.includes('Get started'));
-            });
-            if (getStartedBtn && getStartedBtn.asElement()) {
-              await getStartedBtn.asElement().evaluate(el => {
-                el.scrollIntoView();
-                el.click();
-              });
-            } else {
-              await page.goto(`${parentRefUrl}&action=register`, { waitUntil: 'networkidle0' });
+            const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+            await randomDelay(500, 1000);
+            await Promise.all([
+              getStartedBtn.click(),
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+            ]);
+
+            await randomDelay(1500, 3000);
+
+            const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
+            await emailSelector.type(subEmail, { delay: 50 });
+
+            const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
+            await passSelector.type(subPassword, { delay: 50 });
+
+            const checkbox = await page.$('input[type="checkbox"]');
+            if (checkbox) {
+              await checkbox.click();
             }
 
-            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
+            const continueBtn = await page.waitForSelector('text/Continue', { visible: true, timeout: 15000 });
+            await randomDelay(600, 1200);
+            await Promise.all([
+              continueBtn.click(),
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+            ]);
 
-            await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-            await page.type('input[type="email"]', subEmail);
-            await page.type('input[type="password"]', subPassword);
-            
-            const termsCheckbox = await page.$('input[type="checkbox"]');
-            if (termsCheckbox) {
-              await termsCheckbox.evaluate(el => el.scrollIntoView());
-              await termsCheckbox.click();
-            }
-
-            const continueBtn = await page.evaluateHandle(() => {
-              const buttons = Array.from(document.querySelectorAll('button'));
-              return buttons.find(b => b.innerText.includes('Continue'));
-            });
-            if (continueBtn && continueBtn.asElement()) {
-              await continueBtn.asElement().evaluate(el => {
-                el.scrollIntoView();
-                el.click();
-              });
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await randomDelay(2000, 3000);
             const errorText = await page.evaluate(() => document.body.innerText);
             if (errorText.includes('already been taken')) {
               subEmail = generateRandomEmail();
@@ -296,57 +244,30 @@ async function runAutomationEngine() {
               continue;
             }
 
-            await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
+            const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+            await accountInput.type(subAccountNum, { delay: 50 });
 
-            await page.evaluate(() => {
-              const selects = document.querySelectorAll('select');
-              selects.forEach(s => {
-                for (let i = 0; i < s.options.length; i++) {
-                  if (s.options[i].text.includes('Opay')) {
-                    s.selectedIndex = i;
-                    s.dispatchEvent(new Event('change', { bubbles: true }));
+            try {
+              await page.select('select', 'OPay');
+            } catch (e) {
+              await page.evaluate(() => {
+                const select = document.querySelector('select');
+                if (!select) return;
+                for (let option of select.options) {
+                  if (option.text.toLowerCase().includes('opay') || option.value.toLowerCase().includes('opay')) {
+                    select.value = option.value;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                    break;
                   }
                 }
               });
-            });
-
-            await page.evaluate(() => {
-              const divs = Array.from(document.querySelectorAll('div'));
-              const bankDiv = divs.find(d => d.innerText.includes('Select your bank'));
-              if (bankDiv) bankDiv.click();
-            }).catch(() => {});
-            
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await page.evaluate(() => {
-              const divs = Array.from(document.querySelectorAll('div, span'));
-              const opayOpt = divs.find(d => d.textContent.trim() === 'Opay');
-              if (opayOpt) opayOpt.click();
-            }).catch(() => {});
-
-            const inputFields = await page.$$('input');
-            for (let input of inputFields) {
-              const placeholder = await page.evaluate(el => el.placeholder, input);
-              if (placeholder && placeholder.includes('digit')) {
-                await input.evaluate(el => el.scrollIntoView());
-                await input.type(subAccountNum);
-                break;
-              }
             }
 
-            const verifyBtn = await page.evaluateHandle(() => {
-              const buttons = Array.from(document.querySelectorAll('button'));
-              return buttons.find(b => b.innerText.includes('Verify account'));
-            });
-            if (verifyBtn && verifyBtn.asElement()) {
-              await verifyBtn.asElement().evaluate(el => {
-                el.scrollIntoView();
-                el.click();
-              });
-            }
+            const verifyBtn = await page.waitForSelector('text/Verify account', { visible: true, timeout: 15000 });
+            await randomDelay(500, 1000);
+            await verifyBtn.click();
 
-            await new Promise(resolve => setTimeout(resolve, 5000));
-
+            await randomDelay(5000, 7000);
             const pageContent = await page.evaluate(() => document.body.innerText);
 
             if (pageContent.includes('already linked to another Rexify account')) {
@@ -355,21 +276,14 @@ async function runAutomationEngine() {
               broadcastLog(`❌ Sub Opay number ${subAccountNum} cannot be resolved. Swapping number...`, 'error');
             } else if (pageContent.includes('Invalid')) {
               broadcastLog(`❌ Sub Opay number ${subAccountNum} is marked Invalid. Swapping number...`, 'error');
-            } else if (pageContent.includes('Account verified') || pageContent.includes('Account name')) {
+            } else if (pageContent.includes('Account verified') || pageContent.includes('Account name') || pageContent.includes('Verified')) {
               subVerified = true;
               broadcastLog(`✅ Sub Opay number ${subAccountNum} verified successfully! Clicking Finish...`, 'info');
-              
-              const finishBtn = await page.evaluateHandle(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                return buttons.find(b => b.innerText.includes('Finish & continue'));
-              });
-              if (finishBtn && finishBtn.asElement()) {
-                await finishBtn.asElement().evaluate(el => {
-                  el.scrollIntoView();
-                  el.click();
-                });
-              }
-              await new Promise(resolve => setTimeout(resolve, 4000));
+
+              const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
+              await randomDelay(800, 1500);
+              await finishBtn.click();
+              await delay(4000);
 
               completedCount++;
               broadcastLog(`✅ Sub-account ${completedCount}/${targetCount} completed successfully!`, 'info');
@@ -384,7 +298,7 @@ async function runAutomationEngine() {
           }
 
           if (!subVerified) {
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await randomDelay(2000, 4000);
           }
         }
       }
@@ -422,4 +336,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-                                            
+             
