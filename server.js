@@ -22,15 +22,18 @@ const Steel = require('steel-sdk');
 
 const app = express();
 
-// Set up Multer for Multiple Files
+// Set up Multer for Multiple Files (Now only expects accountsFile and emailsFile)
 const upload = multer({ storage: multer.memoryStorage() });
 const uploadMiddleware = upload.fields([
   { name: 'accountsFile', maxCount: 1 },
-  { name: 'urlsFile', maxCount: 1 }
+  { name: 'emailsFile', maxCount: 1 }
 ]);
 
 const PORT = process.env.PORT || 3000;
 const mobileDevice = KnownDevices['iPhone 13 Pro'];
+
+// 🎯 HARDCODE YOUR SINGLE URL HERE
+const HARDCODED_URL = "https://rexify.com.ng?reference=bkolawole56";
 
 // Initialize Steel SDK Client
 const steel = new Steel({
@@ -75,11 +78,6 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomDelay = (min = 1000, max = 3000) => 
   delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-function generateRandomEmail() {
-  const randStr = Math.random().toString(36).substring(2, 8);
-  return `user_${Date.now()}_${randStr}@gmail.com`;
-}
-
 function generateRandomPassword() {
   return `Pass!${Math.random().toString(36).slice(-8)}`;
 }
@@ -112,7 +110,7 @@ setInterval(() => {
   });
 }, 10000);
 
-// Parser for Accounts (with Headers)
+// Parser for CSV Buffers (Accounts, Emails)
 function parseCSVBuffer(buffer) {
   const content = buffer.toString('utf-8');
   const lines = content.trim().split(/\r?\n/).filter(Boolean);
@@ -129,23 +127,12 @@ function parseCSVBuffer(buffer) {
   });
 }
 
-// Parser for URLs (Headerless, one URL per line)
-function parseUrlsBuffer(buffer) {
-  const content = buffer.toString('utf-8');
-  return content.trim().split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(line => line.startsWith('http')); // Only keep valid URLs
-}
-
-// Single Account Creation Handler with Steel Session Integration
-// -> Now accepts `targetUrl` dynamically
-async function processAccount(row, rowIndex, workerId, targetUrl) {
+// Single Account Creation Handler using provided custom email
+async function processAccountWithCredentials(row, emailToUse, passwordToUse, rowIndex, workerId, targetUrl) {
   const bankName = row.bankName || 'OPay';
   const accountNumber = row.accountNumber || row.account || Object.values(row)[0];
 
-  const randomEmail = generateRandomEmail();
-  const randomPassword = generateRandomPassword();
-  sendLog(`[Worker ${workerId}] [Row ${rowIndex + 1}] Processing ${accountNumber} (${randomEmail})`, 'info');
+  sendLog(`[Worker ${workerId}] [Row ${rowIndex + 1}] Testing Account ${accountNumber} with Email (${emailToUse})`, 'info');
 
   let session = null;
   let browser = null;
@@ -162,7 +149,7 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
     await page.emulate(mobileDevice);
     page.setDefaultTimeout(25000);
 
-    // STEP 1: Landing Page (Uses dynamic targetUrl)
+    // STEP 1: Landing Page
     await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 35000 });
     await randomDelay(1000, 2000);
 
@@ -182,12 +169,12 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
     await randomDelay(1500, 3000);
 
-    // STEP 2: Registration
+    // STEP 2: Registration using custom uploaded email
     const emailSelector = await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="email" i]', { visible: true, timeout: 15000 });
-    await emailSelector.type(randomEmail, { delay: 50 });
+    await emailSelector.type(emailToUse, { delay: 50 });
 
     const passSelector = await page.waitForSelector('input[type="password"], input[name="password"]', { visible: true, timeout: 10000 });
-    await passSelector.type(randomPassword, { delay: 50 });
+    await passSelector.type(passwordToUse, { delay: 50 });
 
     const checkbox = await page.$('input[type="checkbox"]');
     if (checkbox) {
@@ -203,17 +190,16 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
     await randomDelay(3000, 5000);
 
-    // STEP 3: Withdrawal Setup & 2x Retry Verification Loop
+    // STEP 3: Withdrawal Setup & Verification
     let isVerified = false;
     let verifyAttempt = 0;
     const MAX_VERIFY_ATTEMPTS = 1;
 
     while (!isVerified && verifyAttempt < MAX_VERIFY_ATTEMPTS) {
-      // Early exit if user clicked stop
       if (isStopping) throw new Error('Process forcefully stopped by user.');
 
       verifyAttempt++;
-      sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt}/${MAX_VERIFY_ATTEMPTS} for ${accountNumber}...`);
+      sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt} for account ${accountNumber}...`);
 
       const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
 
@@ -265,26 +251,26 @@ async function processAccount(row, rowIndex, workerId, targetUrl) {
 
       if (status === 'success') {
         isVerified = true;
-        sendLog(`[Worker ${workerId}] Account verified successfully for ${accountNumber}!`, 'info');
+        sendLog(`[Worker ${workerId}] Account ${accountNumber} verified successfully!`, 'info');
       } else {
-        sendLog(`[Worker ${workerId}] Verification returned '${status}' on attempt ${verifyAttempt}. Re-inputting...`, 'warn');
+        sendLog(`[Worker ${workerId}] Verification failed for account ${accountNumber}. Trying next account...`, 'warn');
         await randomDelay(1500, 3000);
       }
     }
 
-    if (!isVerified) throw new Error(`Failed account verification after ${MAX_VERIFY_ATTEMPTS} attempts.`);
+    if (!isVerified) throw new Error(`Account verification failed.`);
 
     const finishBtn = await page.waitForSelector('text/Finish & continue', { visible: true, timeout: 15000 });
     await randomDelay(800, 1500);
     await finishBtn.click();
 
-    sendLog(`[Worker ${workerId}] Clicked 'Finish & continue'. Stabilizing account (15s)...`);
+    sendLog(`[Worker ${workerId}] Clicked 'Finish & continue'. Stabilizing (15s)...`);
     await delay(15000);
 
     return true;
 
   } catch (err) {
-    sendLog(`[Worker ${workerId}] Error on account ${accountNumber}: ${err.message}`, 'error');
+    sendLog(`[Worker ${workerId}] Error with account ${accountNumber}: ${err.message}`, 'error');
     return false;
   } finally {
     if (browser) await browser.disconnect().catch(() => {});
@@ -297,34 +283,32 @@ app.post('/api/stop', (req, res) => {
   if (!isRunning) {
     return res.json({ success: false, error: 'Automation is not currently running.' });
   }
-  isStopping = true; // Signals workers to break out of loops gracefully
+  isStopping = true;
   res.json({ success: true });
 });
 
-// --- API: START ROUTE & MULTI-URL ENGINE ---
+// --- API: START ROUTE ---
 app.post('/api/start', uploadMiddleware, async (req, res) => {
   try {
     if (isRunning) return res.status(400).json({ success: false, error: 'Process is already running!' });
 
-    if (!req.files || !req.files['accountsFile'] || !req.files['urlsFile']) {
-      return res.status(400).json({ success: false, error: 'Both accounts CSV and URLs CSV are required' });
+    if (!req.files || !req.files['accountsFile'] || !req.files['emailsFile']) {
+      return res.status(400).json({ success: false, error: 'Both Accounts CSV and Emails CSV are required!' });
     }
 
     const accountRows = parseCSVBuffer(req.files['accountsFile'][0].buffer);
-    const targetUrls = parseUrlsBuffer(req.files['urlsFile'][0].buffer);
+    const emailRows = parseCSVBuffer(req.files['emailsFile'][0].buffer);
 
     if (accountRows.length === 0) return res.status(400).json({ success: false, error: 'Accounts CSV is empty' });
-    if (targetUrls.length === 0) return res.status(400).json({ success: false, error: 'URLs CSV is empty or invalid' });
+    if (emailRows.length === 0) return res.status(400).json({ success: false, error: 'Emails CSV is empty' });
     if (!process.env.STEEL_API_KEY) return res.status(500).json({ success: false, error: 'STEEL_API_KEY is missing' });
 
-    res.json({ success: true, accounts: accountRows.length, urls: targetUrls.length });
+    res.json({ success: true, accounts: accountRows.length, emails: emailRows.length });
 
-    // Reset States
     isRunning = true;
     isStopping = false;
 
-    // Background execution starts here
-    runMultiUrlEngine(accountRows, targetUrls);
+    runEngine(accountRows, emailRows, HARDCODED_URL);
 
   } catch (err) {
     console.error('Fatal API Error:', err);
@@ -332,72 +316,62 @@ app.post('/api/start', uploadMiddleware, async (req, res) => {
   }
 });
 
-// --- CORE LOGIC: THE MULTI-URL QUEUE ENGINE ---
-async function runMultiUrlEngine(accountRows, targetUrls) {
-  const CONCURRENCY = 5;
-  const TARGET_SUCCESSES_PER_URL = 20;
+// --- CORE LOGIC: SINGLE URL CUSTOM EMAIL ENGINE ---
+async function runEngine(accountRows, emailRows, targetUrl) {
+  // Target set to 200 so it goes through your 200 emails
+  const TARGET_SUCCESSES = 200; 
 
-  // This index stays persistent across the entire session!
   let globalAccountIndex = 0; 
+  let globalEmailIndex = 0;
+  let currentSuccesses = 0;
 
-  sendLog(`\n🚀 ENGINE STARTED | Total Accounts: ${accountRows.length} | Total URLs: ${targetUrls.length}`, 'info');
+  sendLog(`\n🚀 ENGINE STARTED | Accounts: ${accountRows.length} | Emails: ${emailRows.length}`, 'info');
+  sendLog(`🎯 TARGET URL: ${targetUrl}\n`);
 
-  for (let urlIdx = 0; urlIdx < targetUrls.length; urlIdx++) {
-    if (isStopping) break;
-    if (globalAccountIndex >= accountRows.length) {
-      sendLog('⚠️ All accounts exhausted! Halting operation.', 'warn');
+  while (currentSuccesses < TARGET_SUCCESSES && !isStopping) {
+    if (globalAccountIndex >= accountRows.length || globalEmailIndex >= emailRows.length) {
+      sendLog('⚠️ Accounts or Emails exhausted! Halting operation.', 'warn');
       break;
     }
 
-    const currentTargetUrl = targetUrls[urlIdx];
-    let currentUrlSuccesses = 0;
+    // Grab the next custom email
+    const emailRow = emailRows[globalEmailIndex];
+    const currentEmail = emailRow.email || Object.values(emailRow)[0];
+    const currentPassword = generateRandomPassword();
 
-    sendLog(`\n==================================================`);
-    sendLog(`🎯 STARTING URL [${urlIdx + 1}/${targetUrls.length}]: ${currentTargetUrl}`);
-    sendLog(`==================================================\n`);
+    globalEmailIndex++; // Move to next email for the next attempt
 
-    const worker = async (workerId) => {
-      while (currentUrlSuccesses < TARGET_SUCCESSES_PER_URL && !isStopping) {
+    sendLog(`\n📧 USING UPLOADED EMAIL (${globalEmailIndex}/${emailRows.length}): ${currentEmail}`, 'info');
+    let emailSuccess = false;
 
-        // Grab the next account safely
-        if (globalAccountIndex >= accountRows.length) break; 
+    // Test account numbers sequentially with THIS email until it successfully verifies
+    while (!emailSuccess && currentSuccesses < TARGET_SUCCESSES && !isStopping) {
+      if (globalAccountIndex >= accountRows.length) break;
 
-        const myIndex = globalAccountIndex;
-        globalAccountIndex++; // Instantly increment so next worker gets a fresh account
+      const myIndex = globalAccountIndex;
+      globalAccountIndex++;
+      const row = accountRows[myIndex];
 
-        const row = accountRows[myIndex];
+      const success = await processAccountWithCredentials(row, currentEmail, currentPassword, myIndex, 1, targetUrl);
 
-        const success = await processAccount(row, myIndex, workerId, currentTargetUrl);
-
-        if (success) {
-          currentUrlSuccesses++;
-          sendLog(`✅ [Worker ${workerId}] SUCCESS (${currentUrlSuccesses}/${TARGET_SUCCESSES_PER_URL}) on URL ${urlIdx + 1}! (Global Account Row ${myIndex + 1})`, 'info');
-
-          if (currentUrlSuccesses >= TARGET_SUCCESSES_PER_URL) {
-            sendLog(`🎉 Target of 20 reached for URL ${urlIdx + 1}.`, 'info');
-          }
-        } else {
-          sendLog(`❌ [Worker ${workerId}] Failed row ${myIndex + 1}. Continuing to next account...`, 'warn');
-        }
-
-        await randomDelay(1000, 2500);
+      if (success) {
+        emailSuccess = true;
+        currentSuccesses++;
+        sendLog(`✅ SUCCESS (${currentSuccesses}/${TARGET_SUCCESSES})! Email ${currentEmail} verified with account row ${myIndex + 1}. Switching to next email...`, 'info');
+      } else {
+        sendLog(`❌ Account row ${myIndex + 1} failed. Trying next account number with the same email...`, 'warn');
       }
-    };
 
-    // Spin up 5 parallel workers for this URL
-    const workers = Array.from({ length: CONCURRENCY }, (_, i) => worker(i + 1));
-    await Promise.all(workers);
-
-    sendLog(`\n🏁 Finished processing URL ${urlIdx + 1}. Total Successes: ${currentUrlSuccesses}\n`);
+      await randomDelay(1000, 2000);
+    }
   }
 
   if (isStopping) {
     sendLog(`🛑 Process was manually stopped by user.`, 'error', true);
   } else {
-    sendLog(`✅ ALL OPERATIONS COMPLETE. Total Accounts Used: ${globalAccountIndex}`, 'info', true);
+    sendLog(`✅ ALL OPERATIONS COMPLETE. Total Successes: ${currentSuccesses}`, 'info', true);
   }
 
-  // Reset states
   isRunning = false;
   isStopping = false;
 }
@@ -405,3 +379,4 @@ async function runMultiUrlEngine(accountRows, targetUrls) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+      
