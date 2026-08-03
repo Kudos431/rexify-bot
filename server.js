@@ -201,7 +201,8 @@ async function processAccountWithCredentials(row, emailToUse, passwordToUse, row
       verifyAttempt++;
       sendLog(`[Worker ${workerId}] Verification attempt ${verifyAttempt} for account ${accountNumber}...`);
 
-      const accountInput = await page.waitForSelector('input[placeholder*="10-11 digit" i], input[name*="account" i]', { visible: true, timeout: 15000 });
+      const accountInput = await page.waitForSelector('input[type="text"], input[type="number"], input:not([type="hidden"])', { visible: true, timeout: 15000 });
+      
       
       await accountInput.click({ clickCount: 3 });
       await accountInput.press('Backspace');
