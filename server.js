@@ -82,18 +82,29 @@ async function runAutomationEngine() {
           await page.goto(rootRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
           const getStartedBtn = await page.$('a[href*="/user/register"]') || await page.$('button');
-          if (getStartedBtn) await getStartedBtn.click();
+          if (getStartedBtn) {
+            await getStartedBtn.evaluate(el => el.scrollIntoView());
+            await getStartedBtn.click();
+          }
           await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
 
           await page.waitForSelector('input[type="email"]', { timeout: 10000 });
           await page.type('input[type="email"]', parentEmail);
           await page.type('input[type="password"]', password);
           
+          // Safe terms checkbox click with scroll
           const termsCheckbox = await page.$('input[type="checkbox"]');
-          if (termsCheckbox) await termsCheckbox.click();
+          if (termsCheckbox) {
+            await termsCheckbox.evaluate(el => el.scrollIntoView());
+            await termsCheckbox.click();
+          }
 
-          const continueBtn = await page.waitForSelector('button[type="submit"], button', { timeout: 5000 });
-          await continueBtn.click();
+          // Safe continue button click with visibility and scroll check
+          const continueBtn = await page.waitForSelector('button[type="submit"], button', { visible: true, timeout: 5000 });
+          if (continueBtn) {
+            await continueBtn.evaluate(el => el.scrollIntoView());
+            await continueBtn.click();
+          }
 
           await new Promise(resolve => setTimeout(resolve, 2000));
           const errorText = await page.evaluate(() => document.body.innerText);
@@ -109,6 +120,7 @@ async function runAutomationEngine() {
           await page.select('select', 'Opay').catch(async () => {
             const dropdown = await page.$('div:has-text("Select your bank")');
             if (dropdown) {
+              await dropdown.evaluate(el => el.scrollIntoView());
               await dropdown.click();
               await new Promise(r => setTimeout(r, 1000));
               const opayOption = await page.$('xpath//div[contains(text(), "Opay")]');
@@ -120,13 +132,17 @@ async function runAutomationEngine() {
           for (let input of inputFields) {
             const placeholder = await page.evaluate(el => el.placeholder, input);
             if (placeholder && placeholder.includes('digit')) {
+              await input.evaluate(el => el.scrollIntoView());
               await input.type(parentAccountNum);
               break;
             }
           }
 
-          const verifyBtn = await page.waitForSelector('button:has-text("Verify account")', { timeout: 5000 }).catch(() => null);
-          if (verifyBtn) await verifyBtn.click();
+          const verifyBtn = await page.waitForSelector('button:has-text("Verify account")', { visible: true, timeout: 5000 }).catch(() => null);
+          if (verifyBtn) {
+            await verifyBtn.evaluate(el => el.scrollIntoView());
+            await verifyBtn.click();
+          }
 
           await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -142,8 +158,11 @@ async function runAutomationEngine() {
             verified = true;
             broadcastLog(`✅ Opay number ${parentAccountNum} verified successfully! Clicking Finish...`, 'info');
             
-            const finishBtn = await page.waitForSelector('button:has-text("Finish & continue")', { timeout: 5000 }).catch(() => null);
-            if (finishBtn) await finishBtn.click();
+            const finishBtn = await page.waitForSelector('button:has-text("Finish & continue")', { visible: true, timeout: 5000 }).catch(() => null);
+            if (finishBtn) {
+              await finishBtn.evaluate(el => el.scrollIntoView());
+              await finishBtn.click();
+            }
             await new Promise(resolve => setTimeout(resolve, 4000));
 
             // Instantly construct the referral link using the parent email username
@@ -195,17 +214,27 @@ async function runAutomationEngine() {
             await page.goto(parentRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
             const getStartedBtn = await page.$('a[href*="/user/register"]') || await page.$('button');
-            if (getStartedBtn) await getStartedBtn.click();
+            if (getStartedBtn) {
+              await getStartedBtn.evaluate(el => el.scrollIntoView());
+              await getStartedBtn.click();
+            }
             await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => {});
 
             await page.waitForSelector('input[type="email"]', { timeout: 10000 });
             await page.type('input[type="email"]', subEmail);
             await page.type('input[type="password"]', subPassword);
+            
             const termsCheckbox = await page.$('input[type="checkbox"]');
-            if (termsCheckbox) await termsCheckbox.click();
+            if (termsCheckbox) {
+              await termsCheckbox.evaluate(el => el.scrollIntoView());
+              await termsCheckbox.click();
+            }
 
-            const continueBtn = await page.waitForSelector('button[type="submit"], button', { timeout: 5000 });
-            await continueBtn.click();
+            const continueBtn = await page.waitForSelector('button[type="submit"], button', { visible: true, timeout: 5000 });
+            if (continueBtn) {
+              await continueBtn.evaluate(el => el.scrollIntoView());
+              await continueBtn.click();
+            }
 
             await new Promise(resolve => setTimeout(resolve, 2000));
             const errorText = await page.evaluate(() => document.body.innerText);
@@ -222,13 +251,17 @@ async function runAutomationEngine() {
             for (let input of inputFields) {
               const placeholder = await page.evaluate(el => el.placeholder, input);
               if (placeholder && placeholder.includes('digit')) {
+                await input.evaluate(el => el.scrollIntoView());
                 await input.type(subAccountNum);
                 break;
               }
             }
 
-            const verifyBtn = await page.waitForSelector('button:has-text("Verify account")', { timeout: 5000 }).catch(() => null);
-            if (verifyBtn) await verifyBtn.click();
+            const verifyBtn = await page.waitForSelector('button:has-text("Verify account")', { visible: true, timeout: 5000 }).catch(() => null);
+            if (verifyBtn) {
+              await verifyBtn.evaluate(el => el.scrollIntoView());
+              await verifyBtn.click();
+            }
 
             await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -244,8 +277,11 @@ async function runAutomationEngine() {
               subVerified = true;
               broadcastLog(`✅ Sub Opay number ${subAccountNum} verified successfully! Clicking Finish...`, 'info');
               
-              const finishBtn = await page.waitForSelector('button:has-text("Finish & continue")', { timeout: 5000 }).catch(() => null);
-              if (finishBtn) await finishBtn.click();
+              const finishBtn = await page.waitForSelector('button:has-text("Finish & continue")', { visible: true, timeout: 5000 }).catch(() => null);
+              if (finishBtn) {
+                await finishBtn.evaluate(el => el.scrollIntoView());
+                await finishBtn.click();
+              }
               await new Promise(resolve => setTimeout(resolve, 4000));
 
               completedCount++;
