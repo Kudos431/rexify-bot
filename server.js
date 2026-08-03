@@ -1,24 +1,40 @@
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import puppeteer from 'puppeteer-core';
-import path from 'path';
-import { fileURLToPath } from 'url';
+// 1. Crash Guards
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRASH GUARD] Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH GUARD] Uncaught Exception thrown:', err);
+});
+
+try {
+  require('dotenv').config();
+} catch (e) {}
+
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const puppeteer = require('puppeteer');
+const { KnownDevices } = require('puppeteer');
+const Steel = require('steel-sdk');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 app.use(express.json());
+
+const mobileDevice = KnownDevices['iPhone 13 Pro'];
+const steel = new Steel({
+  apiKey: process.env.STEEL_API_KEY,
+});
 
 let isRunning = false;
 let isStopping = false;
 
 function broadcastLog(message, type = 'info') {
+  console.log(`[LOG] ${message}`);
   io.emit('log', { message, type, timestamp: new Date().toLocaleTimeString() });
 }
 
@@ -69,25 +85,33 @@ async function runAutomationEngine() {
 
         broadcastLog(`Parent Trial | Email: ${parentEmail} | Opay: ${parentAccountNum}`, 'info');
 
-        let browser;
+        let session = null;
+        let browser = null;
         let verified = false;
 
         try {
           if (isStopping) break;
 
-          const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
-          browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
-          const page = await browser.newPage();
-          page.setDefaultTimeout(25000);
+          session = await steel.sessions.create({});
+          browser = await puppeteer.connect({
+            browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
+          });
+
+          const openPages = await browser.pages();
+          let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
+
+          await page.emulate(mobileDevice);
+          page.setDefaultTimeout(30000);
 
           await page.goto(rootRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
-          await randomDelay(1000, 2000);
+          await randomDelay(1500, 2500);
 
-          const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+          // Safe text click using your previous working pattern
+          const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
           await randomDelay(500, 1000);
           await Promise.all([
             getStartedBtn.click(),
-            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
           ]);
 
           await randomDelay(1500, 3000);
@@ -114,11 +138,11 @@ async function runAutomationEngine() {
           const errorText = await page.evaluate(() => document.body.innerText);
           if (errorText.includes('already been taken')) {
             broadcastLog(`❌ Email already taken. Retrying with a new email...`, 'error');
-            await browser.close();
+            await browser.disconnect();
+            if (session) await steel.sessions.release(session.id).catch(() => {});
             continue;
           }
 
-          // Step 2: Select Bank -> Opay & Input Number
           const accountInput = await page.waitForSelector('input[placeholder*="account number" i], input[name*="account" i]', { visible: true, timeout: 15000 });
           await accountInput.type(parentAccountNum, { delay: 50 });
 
@@ -142,7 +166,7 @@ async function runAutomationEngine() {
           await randomDelay(500, 1000);
           await verifyBtn.click();
 
-          await randomDelay(5000, 7000);
+          await randomDelay(6000, 8000);
           const pageContent = await page.evaluate(() => document.body.innerText);
 
           if (pageContent.includes('already linked to another Rexify account')) {
@@ -167,10 +191,12 @@ async function runAutomationEngine() {
             broadcastLog(`⚠️ Verification state unclear for ${parentAccountNum}. Retrying number...`, 'error');
           }
 
-          await browser.close();
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
         } catch (err) {
           broadcastLog(`Parent automation error: ${err.message}. Retrying...`, 'error');
-          if (browser) await browser.close().catch(() => {});
+          if (browser) await browser.disconnect().catch(() => {});
+          if (session) await steel.sessions.release(session.id).catch(() => {});
         }
 
         if (!parentRefUrl) {
@@ -197,23 +223,31 @@ async function runAutomationEngine() {
           subAccountNum = generateOpayAccountNumber();
           broadcastLog(`Sub ${completedCount + 1}/${targetCount} | Email: ${subEmail} | Opay: ${subAccountNum}`, 'info');
 
-          let browser;
+          let session = null;
+          let browser = null;
+
           try {
             if (isStopping) break;
 
-            const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
-            browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
-            const page = await browser.newPage();
-            page.setDefaultTimeout(25000);
+            session = await steel.sessions.create({});
+            browser = await puppeteer.connect({
+              browserWSEndpoint: `${session.websocketUrl}&apiKey=${process.env.STEEL_API_KEY}`,
+            });
+
+            const openPages = await browser.pages();
+            let page = openPages.length > 0 ? openPages[0] : await browser.newPage();
+
+            await page.emulate(mobileDevice);
+            page.setDefaultTimeout(30000);
 
             await page.goto(parentRefUrl, { waitUntil: 'networkidle2', timeout: 35000 });
-            await randomDelay(1000, 2000);
+            await randomDelay(1500, 2500);
 
-            const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 15000 });
+            const getStartedBtn = await page.waitForSelector('text/Get started', { visible: true, timeout: 20000 });
             await randomDelay(500, 1000);
             await Promise.all([
               getStartedBtn.click(),
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {})
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
             ]);
 
             await randomDelay(1500, 3000);
@@ -240,7 +274,8 @@ async function runAutomationEngine() {
             const errorText = await page.evaluate(() => document.body.innerText);
             if (errorText.includes('already been taken')) {
               subEmail = generateRandomEmail();
-              await browser.close();
+              if (browser) await browser.disconnect().catch(() => {});
+              if (session) await steel.sessions.release(session.id).catch(() => {});
               continue;
             }
 
@@ -267,7 +302,7 @@ async function runAutomationEngine() {
             await randomDelay(500, 1000);
             await verifyBtn.click();
 
-            await randomDelay(5000, 7000);
+            await randomDelay(6000, 8000);
             const pageContent = await page.evaluate(() => document.body.innerText);
 
             if (pageContent.includes('already linked to another Rexify account')) {
@@ -291,10 +326,12 @@ async function runAutomationEngine() {
               broadcastLog(`⚠️ Sub verification state unclear for ${subAccountNum}. Retrying number...`, 'error');
             }
 
-            await browser.close();
+            if (browser) await browser.disconnect().catch(() => {});
+            if (session) await steel.sessions.release(session.id).catch(() => {});
           } catch (err) {
             broadcastLog(`Sub-account error: ${err.message}. Retrying...`, 'error');
-            if (browser) await browser.close().catch(() => {});
+            if (browser) await browser.disconnect().catch(() => {});
+            if (session) await steel.sessions.release(session.id).catch(() => {});
           }
 
           if (!subVerified) {
@@ -336,4 +373,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-             
+          
