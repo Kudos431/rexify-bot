@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const Steel = require('@steel-dev/sdk').default;
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 
@@ -11,10 +10,6 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
-
-const steel = new Steel({
-  steelAPIKey: process.env.STEEL_API_KEY || 'your_steel_api_key_here'
-});
 
 let isRunning = false;
 let isStopping = false;
@@ -60,36 +55,31 @@ async function runAutomationEngine() {
       let parentEmail = null;
 
       while (isRunning && !isStopping && !parentRefUrl) {
-        // Generate an email for the parent attempt. If numbers fail, we keep this email!
         if (!parentEmail) parentEmail = generateRandomEmail();
         const accountNum = generateOpayAccountNumber();
 
         broadcastLog(`Parent Trial | Email: ${parentEmail} | Trying Number: ${accountNum}`, 'info');
 
-        let session, browser;
+        let browser;
         let verified = false;
 
         try {
-          session = await steel.sessions.create();
           if (isStopping) break;
 
-          browser = await puppeteer.connect({ browserWSEndpoint: session.websocketUrl });
+          const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
+          browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
           const page = await browser.newPage();
 
           await page.goto(rootRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
           // --- AUTOMATION FORM FILLING STEPS GO HERE ---
-          // Example: 
           // await page.type('#email', parentEmail);
           // await page.type('#phone', accountNum);
           // await page.click('#submit-btn');
-          // await page.waitForSelector('#success-message', { timeout: 10000 });
 
-          // Simulating verification status check (Replace with your actual validation logic)
           verified = true; // Set to true if verification succeeds
 
           if (verified) {
-            // Captured or constructed parent reference link
             parentRefUrl = `https://rexify.com.ng?reference=parent_${accountNum}`;
             broadcastLog(`✅ Parent account successfully verified using number ${accountNum}!`, 'info');
           } else {
@@ -99,7 +89,6 @@ async function runAutomationEngine() {
           broadcastLog(`Parent automation error: ${err.message}. Retrying number...`, 'error');
         } finally {
           if (browser) await browser.close().catch(() => {});
-          if (session) await steel.sessions.release(session.id).catch(() => {});
         }
 
         if (!parentRefUrl) {
@@ -117,22 +106,20 @@ async function runAutomationEngine() {
       const targetCount = 20;
 
       while (completedCount < targetCount && isRunning && !isStopping) {
-        // For each sub-account, generate a fresh email
         let subEmail = generateRandomEmail();
         let subVerified = false;
         let subAccountNum = '';
 
-        // Keep trying numbers *for this specific email* until it verifies successfully
         while (!subVerified && isRunning && !isStopping) {
           subAccountNum = generateOpayAccountNumber();
           broadcastLog(`URL ${completedCount + 1}/${targetCount} | Email: ${subEmail} | Trying Number: ${subAccountNum}`, 'info');
 
-          let session, browser;
+          let browser;
           try {
-            session = await steel.sessions.create();
             if (isStopping) break;
 
-            browser = await puppeteer.connect({ browserWSEndpoint: session.websocketUrl });
+            const steelWsUrl = `wss://connect.steel.dev?apiKey=${process.env.STEEL_API_KEY}`;
+            browser = await puppeteer.connect({ browserWSEndpoint: steelWsUrl });
             const page = await browser.newPage();
 
             await page.goto(parentRefUrl, { waitUntil: 'networkidle0', timeout: 30000 });
@@ -142,7 +129,7 @@ async function runAutomationEngine() {
             // await page.type('#phone', subAccountNum);
             // await page.click('#submit-btn');
 
-            subVerified = true; // Set to true upon successful backend verification response
+            subVerified = true; 
 
             if (subVerified) {
               completedCount++;
@@ -154,7 +141,6 @@ async function runAutomationEngine() {
             broadcastLog(`Sub-account error: ${err.message}. Retrying number...`, 'error');
           } finally {
             if (browser) await browser.close().catch(() => {});
-            if (session) await steel.sessions.release(session.id).catch(() => {});
           }
 
           if (!subVerified) {
