@@ -282,22 +282,22 @@
             <div class="dz-sub" id="accountsSub">Bank name and account number</div>
           </div>
         </label>
-        <label for="urlsFile">
-          <div class="dropzone" id="urlsZone">
-            <span class="dz-tag">urls.csv</span>
+        <label for="emailsFile">
+          <div class="dropzone" id="emailsZone">
+            <span class="dz-tag">emails.csv</span>
             <div class="plus-ring">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </div>
-            <div class="dz-title" id="urlsTitle">Upload target URLs</div>
-            <div class="dz-sub" id="urlsSub">One URL per row</div>
+            <div class="dz-title" id="emailsTitle">Upload email details</div>
+            <div class="dz-sub" id="emailsSub">One email per row</div>
           </div>
         </label>
       </div>
       <input type="file" id="accountsFile" accept=".csv" required />
-      <input type="file" id="urlsFile" accept=".csv" required />
+      <input type="file" id="emailsFile" accept=".csv" required />
       <div class="btn-row">
         <button type="submit" id="startBtn">Start automation</button>
         <button type="button" id="stopBtn" disabled>Stop</button>
@@ -367,8 +367,8 @@
       readyLabel: 'Ready to upload'
     });
     wireDropzone({
-      zoneId: 'urlsZone', inputId: 'urlsFile',
-      titleId: 'urlsTitle', subId: 'urlsSub',
+      zoneId: 'emailsZone', inputId: 'emailsFile',
+      titleId: 'emailsTitle', subId: 'emailsSub',
       readyLabel: 'Ready to upload'
     });
 
@@ -391,12 +391,12 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const accountsFile = document.getElementById('accountsFile');
-      const urlsFile = document.getElementById('urlsFile');
-      if (!accountsFile.files[0] || !urlsFile.files[0]) return;
+      const emailsFile = document.getElementById('emailsFile');
+      if (!accountsFile.files[0] || !emailsFile.files[0]) return;
 
       const formData = new FormData();
       formData.append('accountsFile', accountsFile.files[0]);
-      formData.append('urlsFile', urlsFile.files[0]);
+      formData.append('emailsFile', emailsFile.files[0]);
 
       setRunningState(true);
       appendLog('Uploading files and starting task loop...', 'info');
@@ -433,7 +433,6 @@
       }
     });
 
-    // Sync UI state on page load/refresh
     async function syncServerStatus() {
       try {
         const res = await fetch('/api/status');
@@ -442,7 +441,7 @@
         if (data.isRunning) {
           startBtn.disabled = true;
           startBtn.textContent = 'Running...';
-          stopBtn.disabled = data.isStopping; // keep enabled unless already stopping
+          stopBtn.disabled = data.isStopping;
           stopBtn.textContent = data.isStopping ? 'Stopping...' : 'Stop';
         } else {
           startBtn.disabled = false;
