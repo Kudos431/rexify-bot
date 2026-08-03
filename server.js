@@ -1,5 +1,5 @@
 const express = require('express');
-const { chromium } = require('playwright'); // or steel-sdk depending on your setup
+const { chromium } = require('puppeteer'); // or steel-sdk depending on your setup
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
